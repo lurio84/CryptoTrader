@@ -1,7 +1,7 @@
 [project]
 name = "cryptotrader"
 version = "0.1.0"
-description = "Personal crypto trading bot with backtesting, dashboard and Telegram alerts"
+description = "Personal crypto advisor with backtesting, dashboard and Discord alerts"
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "ccxt>=4.0",
@@ -20,9 +20,7 @@ dashboard = [
     "uvicorn>=0.30",
     "jinja2>=3.1",
 ]
-alerts = [
-    "python-telegram-bot>=21.0",
-]
+alerts = []
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",

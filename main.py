@@ -312,7 +312,7 @@ def main() -> None:
 
     # check
     p_check = subparsers.add_parser("check", help="Quick signal check")
-    p_check.add_argument("--notify", action="store_true", help="Also send Telegram alerts")
+    p_check.add_argument("--notify", action="store_true", help="Send Discord alert if signal triggered")
 
     # dashboard
     p_dash = subparsers.add_parser("dashboard", help="Run web dashboard")
