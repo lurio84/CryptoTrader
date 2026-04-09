@@ -98,24 +98,24 @@ def send_discord_message(payload: dict) -> bool:
 # Data fetching
 # ---------------------------------------------------------------------------
 
-def _fetch_btc_data() -> dict:
+def _fetch_prices() -> dict:
+    """Fetch BTC and ETH prices from CoinGecko (no geo-restrictions)."""
     try:
-        exchange = ccxt.binance({"enableRateLimit": True})
-        ticker = exchange.fetch_ticker("BTC/USDT")
-        return {"price": ticker.get("last", 0), "change_24h": ticker.get("percentage", 0)}
+        resp = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": "bitcoin,ethereum", "vs_currencies": "usd", "include_24hr_change": "true"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return {
+            "btc_price": data["bitcoin"]["usd"],
+            "btc_change": data["bitcoin"]["usd_24h_change"],
+            "eth_price": data["ethereum"]["usd"],
+        }
     except Exception as e:
-        logger.error("Failed to fetch BTC data: %s", e)
-        return {"price": None, "change_24h": None}
-
-
-def _fetch_eth_price() -> float | None:
-    try:
-        exchange = ccxt.binance({"enableRateLimit": True})
-        ticker = exchange.fetch_ticker("ETH/USDT")
-        return ticker.get("last")
-    except Exception as e:
-        logger.error("Failed to fetch ETH price: %s", e)
-        return None
+        logger.error("Failed to fetch prices from CoinGecko: %s", e)
+        return {"btc_price": None, "btc_change": None, "eth_price": None}
 
 
 def _fetch_funding_rate() -> float | None:
@@ -190,13 +190,13 @@ def check_and_alert() -> list[dict]:
     """
     init_db()
 
-    btc_data = _fetch_btc_data()
-    eth_price = _fetch_eth_price()
+    prices = _fetch_prices()
     funding_rate = _fetch_funding_rate()
     mvrv = _fetch_eth_mvrv()
 
-    btc_price = btc_data.get("price")
-    btc_change = btc_data.get("change_24h")
+    btc_price = prices.get("btc_price")
+    btc_change = prices.get("btc_change")
+    eth_price = prices.get("eth_price")
 
     triggered = []
 

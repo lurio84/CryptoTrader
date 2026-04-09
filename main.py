@@ -143,7 +143,6 @@ def cmd_dca_backtest(args: argparse.Namespace) -> None:
 def cmd_check(args: argparse.Namespace) -> None:
     """Quick check: fetch all signals and show current status."""
     init_db()
-    import ccxt
     import requests as req
 
     print("CryptoTrader Advisor - Quick Check")
@@ -151,13 +150,17 @@ def cmd_check(args: argparse.Namespace) -> None:
 
     # Prices
     try:
-        exchange = ccxt.binance({"enableRateLimit": True})
-        btc = exchange.fetch_ticker("BTC/USDT")
-        eth = exchange.fetch_ticker("ETH/USDT")
-        btc_price = btc.get("last", 0)
-        btc_change = btc.get("percentage", 0)
-        eth_price = eth.get("last", 0)
-        eth_change = eth.get("percentage", 0)
+        resp = req.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": "bitcoin,ethereum", "vs_currencies": "usd", "include_24hr_change": "true"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        cg = resp.json()
+        btc_price = cg["bitcoin"]["usd"]
+        btc_change = cg["bitcoin"]["usd_24h_change"]
+        eth_price = cg["ethereum"]["usd"]
+        eth_change = cg["ethereum"].get("usd_24h_change", 0)
     except Exception:
         btc_price = btc_change = eth_price = eth_change = None
 
