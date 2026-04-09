@@ -19,12 +19,24 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
+      - name: Restore alert DB cache
+        uses: actions/cache@v4
+        with:
+          path: data/cryptotrader.db
+          key: cryptotrader-db
+          restore-keys: cryptotrader-db
+
       - name: Install dependencies
         run: pip install -e ".[all]"
 
       - name: Run signal check and notify
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py check --notify
+
+      - name: Save alert DB cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: data/cryptotrader.db
+          key: cryptotrader-db
