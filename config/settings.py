@@ -2,26 +2,20 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_ENV_FILE = PROJECT_ROOT / ".env"
 
 
 class BinanceSettings(BaseSettings):
     api_key: str = ""
     api_secret: str = ""
 
-    model_config = SettingsConfigDict(env_prefix="BINANCE_")
-
-
-class TelegramSettings(BaseSettings):
-    bot_token: str = ""
-    chat_id: str = ""
-
-    model_config = SettingsConfigDict(env_prefix="TELEGRAM_")
+    model_config = SettingsConfigDict(env_prefix="BINANCE_", env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 
 
 class DiscordSettings(BaseSettings):
     webhook_url: str = ""
 
-    model_config = SettingsConfigDict(env_prefix="DISCORD_")
+    model_config = SettingsConfigDict(env_prefix="DISCORD_", env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 
 
 class RiskSettings(BaseSettings):
@@ -82,7 +76,6 @@ class Settings(BaseSettings):
     default_symbols: list[str] = ["BTC/USDT", "ETH/USDT"]
 
     binance: BinanceSettings = BinanceSettings()
-    telegram: TelegramSettings = TelegramSettings()
     discord: DiscordSettings = DiscordSettings()
     risk: RiskSettings = RiskSettings()
     dca: DCASettings = DCASettings()

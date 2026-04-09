@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
-from alerts.telegram_bot import check_and_alert
+from alerts.discord_bot import check_and_alert
 
 logging.basicConfig(
     level=logging.INFO,

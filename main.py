@@ -231,14 +231,14 @@ def cmd_check(args: argparse.Namespace) -> None:
     if not has_alert:
         print(f"    [OK] No action needed. Sparplan running as usual.")
 
-    # Also trigger telegram alerts if configured
     if args.notify:
-        from alerts.telegram_bot import check_and_alert
+        from alerts.discord_bot import check_and_alert
         triggered = check_and_alert()
         if triggered:
-            print(f"\n  Telegram notifications sent: {len(triggered)}")
+            sent = sum(1 for a in triggered if a.get("sent"))
+            print(f"\n  Discord alerts sent: {sent}/{len(triggered)}")
         else:
-            print(f"\n  No Telegram alerts triggered.")
+            print(f"\n  No alerts triggered.")
 
     print(f"\n{'='*55}")
 
