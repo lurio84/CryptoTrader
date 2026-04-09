@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CryptoTrader Advisor</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+            background: #09090b;
+            color: #fafafa;
+            min-height: 100vh;
+        }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0 32px;
+        }
+        .header-left h1 {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+        .header-left h1 span { color: #3b82f6; }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .live-dot {
+            width: 8px; height: 8px;
+            background: #22c55e;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .update-time { font-size: 13px; color: #71717a; }
+
+        /* Alert Banner */
+        .alert-banner {
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+        }
+        .alert-banner-ok {
+            background: linear-gradient(135deg, #052e16 0%, #09090b 100%);
+            border: 1px solid #166534;
+        }
+        .alert-banner-danger {
+            background: linear-gradient(135deg, #2a0a0a 0%, #09090b 100%);
+            border: 1px solid #991b1b;
+        }
+        .alert-banner-warning {
+            background: linear-gradient(135deg, #1a0f00 0%, #09090b 100%);
+            border: 1px solid #92400e;
+        }
+        .alert-icon {
+            font-size: 24px;
+            flex-shrink: 0;
+            width: 40px; height: 40px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 10px;
+        }
+        .alert-icon-ok { background: #052e16; color: #22c55e; }
+        .alert-icon-danger { background: #2a0a0a; color: #ef4444; }
+        .alert-icon-warning { background: #1a0f00; color: #f59e0b; }
+        .alert-content h2 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+        .alert-content p { font-size: 14px; color: #a1a1aa; line-height: 1.5; }
+        .alert-content .alert-action {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 6px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .action-buy { background: #dc2626; color: white; }
+        .action-watch { background: #d97706; color: white; }
+
+        /* Metric Cards Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        @media (max-width: 900px) {
+            .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        .metric-card {
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 12px;
+            padding: 20px;
+            transition: border-color 0.2s;
+        }
+        .metric-card:hover { border-color: #3f3f46; }
+        .metric-label {
+            font-size: 12px;
+            font-weight: 500;
+            color: #71717a;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 12px;
+        }
+        .metric-value {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -1px;
+            line-height: 1;
+        }
+        .metric-sub {
+            font-size: 13px;
+            margin-top: 8px;
+            font-weight: 500;
+        }
+        .up { color: #22c55e; }
+        .down { color: #ef4444; }
+        .muted { color: #71717a; }
+        .warn { color: #f59e0b; }
+
+        /* Threshold indicators */
+        .threshold-bar {
+            margin-top: 12px;
+            height: 4px;
+            border-radius: 2px;
+            background: #27272a;
+            position: relative;
+            overflow: hidden;
+        }
+        .threshold-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.3s;
+        }
+        .fill-green { background: linear-gradient(90deg, #22c55e, #16a34a); }
+        .fill-red { background: linear-gradient(90deg, #ef4444, #dc2626); }
+        .fill-yellow { background: linear-gradient(90deg, #f59e0b, #d97706); }
+        .fill-blue { background: linear-gradient(90deg, #3b82f6, #2563eb); }
+
+        /* Two Column Layout */
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
+
+        /* Sparplan Card */
+        .plan-card {
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 12px;
+            padding: 24px;
+        }
+        .plan-card h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #71717a;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 16px;
+        }
+        .plan-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #27272a;
+        }
+        .plan-item:last-child { border-bottom: none; }
+        .plan-asset {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .plan-icon {
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 12px;
+        }
+        .icon-btc { background: #1a1400; color: #f59e0b; border: 1px solid #422006; }
+        .icon-eth { background: #0a0a1a; color: #818cf8; border: 1px solid #1e1b4b; }
+        .icon-sp { background: #001a0a; color: #22c55e; border: 1px solid #052e16; }
+        .plan-name { font-size: 14px; font-weight: 500; }
+        .plan-name small { color: #71717a; font-weight: 400; }
+        .plan-amount { font-size: 14px; font-weight: 600; }
+
+        /* Signals Card */
+        .signal-thresholds { margin-top: 8px; }
+        .threshold-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            border-radius: 8px;
+            margin-bottom: 6px;
+            font-size: 13px;
+            background: #0a0a0a;
+            border: 1px solid #27272a;
+        }
+        .threshold-status {
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .status-ok { background: #052e16; color: #22c55e; }
+        .status-active { background: #2a0a0a; color: #ef4444; }
+        .status-watch { background: #1a0f00; color: #f59e0b; }
+
+        /* History Table */
+        .history-section {
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .history-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #27272a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .history-header h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #71717a;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            padding: 12px 24px;
+            text-align: left;
+            font-size: 11px;
+            font-weight: 600;
+            color: #52525b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            background: #111113;
+        }
+        td {
+            padding: 14px 24px;
+            font-size: 13px;
+            border-bottom: 1px solid #1c1c1f;
+            color: #d4d4d8;
+        }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: #1c1c1f; }
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }
+        .badge-red { background: #2a0a0a; color: #ef4444; }
+        .badge-orange { background: #1a0f00; color: #f59e0b; }
+        .badge-yellow { background: #1a1700; color: #eab308; }
+
+        .empty-state {
+            text-align: center;
+            padding: 48px 24px;
+            color: #52525b;
+            font-size: 14px;
+        }
+
+        footer {
+            text-align: center;
+            padding: 32px 0 16px;
+            font-size: 12px;
+            color: #3f3f46;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+
+        <!-- Header -->
+        <div class="header">
+            <div class="header-left">
+                <h1><span>Crypto</span>Trader Advisor</h1>
+            </div>
+            <div class="header-right">
+                <div class="live-dot"></div>
+                <span class="update-time" id="update-time">{{ last_update }}</span>
+            </div>
+        </div>
+
+        <!-- Alert Banner -->
+        <div class="alert-banner alert-banner-ok" id="alert-banner">
+            <div class="alert-icon alert-icon-ok" id="alert-icon">...</div>
+            <div class="alert-content" id="alert-content">
+                <h2>Loading signals...</h2>
+                <p>Fetching live data from APIs</p>
+            </div>
+        </div>
+
+        <!-- Metric Cards -->
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-label">Bitcoin</div>
+                <div class="metric-value" id="btc-price">...</div>
+                <div class="metric-sub muted" id="btc-change">loading</div>
+                <div class="threshold-bar"><div class="threshold-fill fill-blue" id="btc-bar" style="width: 0%"></div></div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Ethereum</div>
+                <div class="metric-value" id="eth-price">...</div>
+                <div class="metric-sub muted" id="eth-change">loading</div>
+                <div class="threshold-bar"><div class="threshold-fill fill-blue" id="eth-bar" style="width: 0%"></div></div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">Fear & Greed</div>
+                <div class="metric-value muted" id="fg-value">...</div>
+                <div class="metric-sub muted" id="fg-label">loading</div>
+                <div class="threshold-bar"><div class="threshold-fill fill-blue" id="fg-bar" style="width: 0%"></div></div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">BTC Funding Rate</div>
+                <div class="metric-value" id="funding-value" style="font-size: 22px;">...</div>
+                <div class="metric-sub muted">8h rate</div>
+                <div class="threshold-bar"><div class="threshold-fill fill-blue" style="width: 50%"></div></div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">ETH MVRV</div>
+                <div class="metric-value muted" id="mvrv-value">...</div>
+                <div class="metric-sub muted">Market / Realized Value</div>
+                <div class="threshold-bar"><div class="threshold-fill fill-blue" id="mvrv-bar" style="width: 0%"></div></div>
+            </div>
+        </div>
+
+        <!-- Two Column: Sparplan + Signal Thresholds -->
+        <div class="two-col">
+            <div class="plan-card">
+                <h3>Weekly Sparplan (Trade Republic)</h3>
+                <div class="plan-item">
+                    <div class="plan-asset">
+                        <div class="plan-icon icon-btc">BTC</div>
+                        <div class="plan-name">Bitcoin <small>Sparplan</small></div>
+                    </div>
+                    <div class="plan-amount">{{ dca_btc }}</div>
+                </div>
+                <div class="plan-item">
+                    <div class="plan-asset">
+                        <div class="plan-icon icon-eth">ETH</div>
+                        <div class="plan-name">Ethereum <small>Sparplan + Staking</small></div>
+                    </div>
+                    <div class="plan-amount">{{ dca_eth }}</div>
+                </div>
+                <div class="plan-item">
+                    <div class="plan-asset">
+                        <div class="plan-icon icon-sp">SPX</div>
+                        <div class="plan-name">S&P 500 + Others <small>Stocks</small></div>
+                    </div>
+                    <div class="plan-amount">25 EUR/week</div>
+                </div>
+            </div>
+
+            <div class="plan-card">
+                <h3>Alert Thresholds</h3>
+                <div class="signal-thresholds">
+                    <div class="threshold-item">
+                        <span>BTC Crash > 15% (24h)</span>
+                        <span class="threshold-status status-ok" id="th-crash">...</span>
+                    </div>
+                    <div class="threshold-item">
+                        <span>BTC Funding < -0.01%</span>
+                        <span class="threshold-status status-ok" id="th-funding">...</span>
+                    </div>
+                    <div class="threshold-item">
+                        <span>ETH MVRV < 1.0</span>
+                        <span class="threshold-status status-ok" id="th-mvrv1">...</span>
+                    </div>
+                    <div class="threshold-item">
+                        <span>ETH MVRV < 0.8</span>
+                        <span class="threshold-status status-ok" id="th-mvrv08">...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Signal History -->
+        <div class="history-section">
+            <div class="history-header">
+                <h3>Signal History</h3>
+            </div>
+            {% if alert_history %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Signal</th>
+                        <th>Severity</th>
+                        <th>BTC Price</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in alert_history %}
+                    <tr>
+                        <td>{{ row.timestamp }}</td>
+                        <td style="font-weight: 500;">{{ row.alert_type }}</td>
+                        <td><span class="badge badge-{{ row.severity }}">{{ row.severity|upper }}</span></td>
+                        <td>{% if row.btc_price %}${{ "{:,.0f}".format(row.btc_price) }}{% else %}-{% endif %}</td>
+                        <td style="color: #71717a; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ row.message }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                No alerts triggered yet. Signals will appear here as they occur.
+            </div>
+            {% endif %}
+        </div>
+
+        <footer>CryptoTrader Advisor v0.1.0 -- Data for informational purposes only, not financial advice</footer>
+    </div>
+
+    <script>
+    function fmt(v, decimals) {
+        if (v === null || v === undefined) return "N/A";
+        return v.toLocaleString("en-US", {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
+    }
+
+    function updateDashboard() {
+        fetch("/api/status")
+            .then(r => r.json())
+            .then(d => {
+                var p = d.prices;
+                var fg = d.fear_greed;
+
+                // BTC
+                var btcEl = document.getElementById("btc-price");
+                var btcChEl = document.getElementById("btc-change");
+                if (btcEl && p.btc_price) {
+                    btcEl.textContent = "$" + fmt(p.btc_price, 2);
+                    var ch = p.btc_change_24h;
+                    btcChEl.textContent = (ch >= 0 ? "+" : "") + fmt(ch, 2) + "% 24h";
+                    btcChEl.className = "metric-sub " + (ch >= 0 ? "up" : "down");
+                    document.getElementById("btc-bar").className = "threshold-fill " + (ch >= 0 ? "fill-green" : "fill-red");
+                    document.getElementById("btc-bar").style.width = Math.min(100, Math.abs(ch) * 5) + "%";
+                }
+
+                // ETH
+                var ethEl = document.getElementById("eth-price");
+                var ethChEl = document.getElementById("eth-change");
+                if (ethEl && p.eth_price) {
+                    ethEl.textContent = "$" + fmt(p.eth_price, 2);
+                    var ch2 = p.eth_change_24h;
+                    ethChEl.textContent = (ch2 >= 0 ? "+" : "") + fmt(ch2, 2) + "% 24h";
+                    ethChEl.className = "metric-sub " + (ch2 >= 0 ? "up" : "down");
+                    document.getElementById("eth-bar").className = "threshold-fill " + (ch2 >= 0 ? "fill-green" : "fill-red");
+                    document.getElementById("eth-bar").style.width = Math.min(100, Math.abs(ch2) * 5) + "%";
+                }
+
+                // F&G
+                var fgEl = document.getElementById("fg-value");
+                var fgLbl = document.getElementById("fg-label");
+                if (fgEl && fg.fear_greed_value !== null) {
+                    var v = fg.fear_greed_value;
+                    fgEl.textContent = v;
+                    fgEl.className = "metric-value " + (v <= 25 ? "down" : v >= 75 ? "up" : "warn");
+                    fgLbl.textContent = fg.fear_greed_label;
+                    document.getElementById("fg-bar").style.width = v + "%";
+                    document.getElementById("fg-bar").className = "threshold-fill " + (v <= 25 ? "fill-red" : v >= 75 ? "fill-green" : "fill-yellow");
+                }
+
+                // Funding
+                var frEl = document.getElementById("funding-value");
+                if (frEl && d.funding_rate !== null) {
+                    frEl.textContent = (d.funding_rate * 100).toFixed(4) + "%";
+                }
+
+                // MVRV
+                var mvEl = document.getElementById("mvrv-value");
+                if (mvEl && d.mvrv !== null) {
+                    mvEl.textContent = d.mvrv.toFixed(3);
+                    mvEl.className = "metric-value " + (d.mvrv < 0.8 ? "down" : d.mvrv < 1.0 ? "warn" : "up");
+                    document.getElementById("mvrv-bar").style.width = Math.min(100, d.mvrv * 40) + "%";
+                    document.getElementById("mvrv-bar").className = "threshold-fill " + (d.mvrv < 0.8 ? "fill-red" : d.mvrv < 1.0 ? "fill-yellow" : "fill-green");
+                }
+
+                // Alert banner
+                var banner = document.getElementById("alert-banner");
+                if (d.alerts && d.alerts.length > 0) {
+                    var hasRed = d.alerts.some(function(a) { return a.severity === "red"; });
+                    banner.className = "alert-banner " + (hasRed ? "alert-banner-danger" : "alert-banner-warning");
+                    var icon = document.getElementById("alert-icon");
+                    icon.className = "alert-icon " + (hasRed ? "alert-icon-danger" : "alert-icon-warning");
+                    icon.textContent = "!";
+                    var content = "";
+                    d.alerts.forEach(function(a) {
+                        content += "<h2>" + a.type + "</h2>";
+                        content += "<p>" + a.message + "</p>";
+                        if (a.severity === "red") {
+                            content += '<span class="alert-action action-buy">Buy extra in Trade Republic</span>';
+                        } else {
+                            content += '<span class="alert-action action-watch">Monitor closely</span>';
+                        }
+                    });
+                    document.getElementById("alert-content").innerHTML = content;
+                } else {
+                    banner.className = "alert-banner alert-banner-ok";
+                    document.getElementById("alert-icon").className = "alert-icon alert-icon-ok";
+                    document.getElementById("alert-icon").textContent = "OK";
+                    document.getElementById("alert-content").innerHTML = "<h2>No action needed</h2><p>All signals within normal ranges. Your Sparplans are running automatically.</p>";
+                }
+
+                // Threshold statuses
+                if (p.btc_change_24h !== null) {
+                    var s1 = document.getElementById("th-crash");
+                    if (p.btc_change_24h <= -15) { s1.textContent = "ACTIVE"; s1.className = "threshold-status status-active"; }
+                    else if (p.btc_change_24h <= -10) { s1.textContent = "WATCH"; s1.className = "threshold-status status-watch"; }
+                    else { s1.textContent = "OK"; s1.className = "threshold-status status-ok"; }
+                }
+                if (d.funding_rate !== null) {
+                    var s2 = document.getElementById("th-funding");
+                    if (d.funding_rate < -0.0001) { s2.textContent = "ACTIVE"; s2.className = "threshold-status status-active"; }
+                    else { s2.textContent = "OK"; s2.className = "threshold-status status-ok"; }
+                }
+                if (d.mvrv !== null) {
+                    var s3 = document.getElementById("th-mvrv1");
+                    var s4 = document.getElementById("th-mvrv08");
+                    if (d.mvrv < 0.8) { s3.textContent = "ACTIVE"; s3.className = "threshold-status status-active"; s4.textContent = "ACTIVE"; s4.className = "threshold-status status-active"; }
+                    else if (d.mvrv < 1.0) { s3.textContent = "WATCH"; s3.className = "threshold-status status-watch"; s4.textContent = "OK"; s4.className = "threshold-status status-ok"; }
+                    else { s3.textContent = "OK"; s3.className = "threshold-status status-ok"; s4.textContent = "OK"; s4.className = "threshold-status status-ok"; }
+                }
+
+                // Update time
+                document.getElementById("update-time").textContent = new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC";
+            });
+    }
+
+    // Load data immediately after page renders
+    updateDashboard();
+    // Auto-refresh every 60 seconds
+    setInterval(updateDashboard, 60000);
+    </script>
+</body>
+</html>
