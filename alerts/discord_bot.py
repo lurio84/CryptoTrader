@@ -3,13 +3,12 @@
 import logging
 from datetime import datetime, timezone, timedelta
 
-import ccxt
 import requests
 from sqlalchemy import select
 
 from config.settings import settings
 from data.database import init_db, get_session
-from data.models import SentimentData, AlertLog
+from data.models import AlertLog
 
 logger = logging.getLogger(__name__)
 
@@ -119,18 +118,20 @@ def _fetch_prices() -> dict:
 
 
 def _fetch_funding_rate() -> float | None:
+    """Fetch current BTC funding rate live from Binance Futures (public endpoint, no geo-block)."""
     try:
-        with get_session() as session:
-            row = session.execute(
-                select(SentimentData)
-                .where(SentimentData.funding_rate_btc.isnot(None))
-                .order_by(SentimentData.timestamp.desc())
-                .limit(1)
-            ).scalar_one_or_none()
-            if row:
-                return row.funding_rate_btc
+        resp = requests.get(
+            "https://fapi.binance.com/fapi/v1/fundingRate",
+            params={"symbol": "BTCUSDT", "limit": 1},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data:
+            return float(data[0]["fundingRate"])
         return None
-    except Exception:
+    except Exception as e:
+        logger.error("Failed to fetch funding rate: %s", e)
         return None
 
 
