@@ -88,6 +88,47 @@ Script: `backtesting/exit_strategy_research.py` (datos reales 2018-2026)
 - CONCLUSION: ETH MVRV como senal de venta DESCARTADO. Misma conclusion que BTC MVRV.
 - Nota: datos 2015-2016 son ruido (ETH precio $1-6, mercado inmaduro)
 
+### Analisis adicional: Senales relativas con N>10 (exit_signals_research2.py, 2026-04)
+
+Script: `backtesting/exit_signals_research2.py` (datos reales 2018-2026)
+Motivacion: buscar senales de venta con mas eventos historicos que N=1 (precio absoluto)
+
+#### Analisis A: BTC precio / 200-day MA ratio (bins por nivel de sobrecalentamiento)
+- Bin 1.5-2.0x (N=24 eventos): 30d=+12.6% -- MAYOR que baseline +3.7% (momentum continua)
+- Bin 2.0-2.5x (N=10 eventos): 30d=+7.7% -- MAYOR que baseline (igual patron que MVRV)
+- Bin >=2.5x (N=3 eventos): insuficiente N para validar
+- CONCLUSION: MA ratio como senal de venta DESCARTADO. Mismo patron que MVRV: bull markets
+  con ratio alto predicen retornos MAYORES, no menores. El momentum continua.
+
+#### Analisis B: BTC % ganancia desde minimo de 365 dias
+- Bin 300-500% (N=18 eventos): 30d=+3.8% vs baseline +3.7% -- sin efecto predictivo
+- Bin >=500% (N=19 eventos): 30d=-1.7%, 90d=-12.0% vs baseline +14.3% -- CONFIRMADO
+  Esta es la senal relativa mas fuerte encontrada: cuando BTC sube >500% desde su minimo
+  anual, el retorno a 90 dias es -12% vs +14.3% baseline (-26pp de diferencia)
+  Nota: la senal se activa tarde en el ciclo (ej. Noviembre 2020 con BTC en $24k) pero
+  BTC continuo subiendo hasta $64k en Abril 2021. Por eso no sirve como trigger de venta.
+  Util como INDICADOR INFORMATIVO de que estamos en zona de riesgo elevado.
+
+#### Analisis C: Simulacion DCA + venta con MA ratio como trigger
+- Vender 20% cuando ratio > 2.0x: -78pp vs hold (PEOR)
+- Vender 25% cuando ratio > 2.0x: -96pp vs hold (PEOR)
+- Vender 33% cuando ratio > 2.0x: -121pp vs hold (MUCHO PEOR)
+- Vender cuando ratio > 3.0x: nunca ocurrio (N=0), identico a hold
+- CONCLUSION DEFINITIVA: vender usando MA ratio como trigger DESTRUYE retornos.
+  El mercado sube mas despues de que el ratio llega a 2x. La venta deja fuera de
+  la continuacion del bull run. NO implementar como mecanismo de venta automatica.
+
+#### Analisis D: Senal combinada (MA ratio + gain-from-low)
+- ratio>2.0 AND gain>300% (N=9): 30d=+9.1% -- MAYOR que baseline (no es senal de venta)
+- ratio>2.5 AND gain>300% (N=3): insuficiente N
+- CONCLUSION: combinacion tampoco funciona como senal de venta.
+
+#### Conclusion general del research de senales relativas
+- NO existe ninguna senal relativa mecanica (con N>10) que mejore el hold DCA en retorno total
+- El gain-from-low >=500% es informativo (90d retorno es -12% vs +14.3% baseline) pero
+  se activa demasiado pronto en el ciclo para ser un trigger de venta fiable
+- La estrategia validada sigue siendo: DCA + rebalanceo anual + profit-taking a milestones
+
 ## Decisiones importantes tomadas
 
 - Discord unico canal de alertas (Telegram eliminado)
@@ -104,6 +145,40 @@ Script: `backtesting/exit_strategy_research.py` (datos reales 2018-2026)
 - Profit parcial ETH a $3k: ALERTA ACTIVA en Discord (orange, dedup 30d) -- validado +69pp vs hold
 - ETH MVRV alto como venta: DESCARTADO (Analysis 5: retornos son MAYORES con MVRV alto, no menores)
 - Senales de compra re-validadas con datos 2018-2026: todas confirmadas, win rates algo menores que documentados originalmente (ciclos modernos mas eficientes)
+- MA ratio como senal de venta: DESCARTADO (Analysis A 2026-04: retornos son MAYORES en zona sobrecalentada, igual patron que MVRV)
+- Gain-from-low >=500% como senal de venta mecanica: DESCARTADO como trigger. Informativo: 90d retorno -12% vs +14.3% baseline, pero se activa demasiado pronto en el ciclo
+- Venta cuando MA ratio > 2.0x: DESTRUYE retornos (-78pp a -121pp vs hold segun % vendido)
+
+## Investigacion pendiente (proxima sesion)
+
+Script a crear: `backtesting/exit_signals_research3.py`
+
+### Senales on-chain con datos CoinMetrics (gratuitos)
+- **NVT ratio** (`NVTAdj`): market cap / volumen on-chain. Alto NVT = burbuja especulativa.
+  Es el "P/E ratio" de Bitcoin. Conceptualmente distinto a MVRV (uso de red vs valor realizado).
+- **Active addresses divergencia** (`AdrActCnt`): precio sube pero activas se estancan = bearish.
+  Detecta cuando el rally es especulativo y no hay mas usuarios entrando.
+- **Coin Days Destroyed** (CDD): cuando HODLers veteranos mueven monedas dormidas = suelen vender.
+  Picos de CDD historicamente cerca de tops. Metrica en CoinMetrics.
+- **Weekly RSI > 85**: RSI semanal calculable desde precios diarios. Mas estable que diario.
+  Testear cuantos eventos N hay en 2018-2026 con RSI semanal extremo.
+
+### Estrategias alternativas que NO requieren predecir el techo
+- **DCA-out sistematico**: reduccion gradual conforme sube precio.
+  Ejemplo: vender 3% holdings BTC por cada $20k que suba sobre $80k.
+  No requiere señal. N=muchos por diseno. Backtest: como compara vs hold y vs alertas absolutas.
+- **Timing por ciclo de halving**: halvings son deterministicos (2012, 2016, 2020, 2024, ~2028).
+  Historicamente pico ocurre 12-18 meses post-halving. Halving 2024 fue abril -> zona de riesgo
+  seria abril-octubre 2025 (ya paso). Util para planificar proximo ciclo (2026-2027).
+- **Venta por coste-base propio**: vender cuando tu ganancia personal > X%.
+  Relativo a TU precio medio de compra, no al mercado. Requiere conocer coste base.
+
+### Prioridad sugerida
+1. NVT ratio (conceptualmente diferente, puede sorprender)
+2. DCA-out sistematico (cambia el problema: no predecir, sino reducir sistematicamente)
+3. Weekly RSI extremo (rapido de implementar, usa datos ya cacheados)
+4. Halving cycle timing (deterministico, interesante para planificacion)
+5. Active addresses / CDD (mas complejo, menor prioridad)
 
 ## Sistema en produccion
 
