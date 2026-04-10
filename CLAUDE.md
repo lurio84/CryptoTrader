@@ -278,6 +278,7 @@ python main.py check --notify         # Check + enviar Discord si hay alerta
 python main.py dashboard              # Dashboard web
 python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 python main.py sentiment --since 2020-01-01
+python main.py rebalance --btc X --eth X --other X  # Rebalanceo anual (X = valor en EUR de cada bloque)
 ```
 
 ## Fuentes de datos (todas publicas, sin API key)

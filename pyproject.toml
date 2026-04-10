@@ -12,6 +12,7 @@ dependencies = [
     "pydantic-settings>=2.0",
     "apscheduler>=3.10",
     "python-dotenv>=1.0",
+    "requests>=2.31",
 ]
 
 [project.optional-dependencies]
@@ -23,7 +24,6 @@ dashboard = [
 alerts = []
 research = [
     "yfinance>=0.2",
-    "requests>=2.31",
 ]
 dev = [
     "pytest>=8.0",
