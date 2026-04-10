@@ -1,3 +1,4 @@
+import pytest
 from config.settings import Settings
 
 
@@ -22,6 +23,3 @@ def test_fee_calculations():
     # Round trip cost
     round_trip = (taker_fee * 2) + (slippage * 2)
     assert round_trip == pytest.approx(0.3, abs=0.01)
-
-
-import pytest

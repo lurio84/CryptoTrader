@@ -35,7 +35,7 @@ Alertas de compra extra manual (1 EUR fee en TR, 2-5 veces/ano):
 
 - Discord unico canal de alertas (Telegram eliminado)
 - Precios via CoinGecko (Binance bloquea IPs de GitHub)
-- Funding rate via Bybit API (Binance bloquea todos sus dominios desde GitHub)
+- Funding rate via OKX API (Binance y Bybit bloquean IPs de GitHub)
 - ETH MVRV via CoinMetrics community API
 - DB de alertas cacheada en GitHub Actions (deduplicacion funciona entre runs)
 - NO usar saveback 2% de TR para pagar con crypto (vender crypto es mala idea segun datos)
@@ -70,7 +70,7 @@ python main.py sentiment --since 2020-01-01
 ## Fuentes de datos (todas publicas, sin API key)
 
 - Precios BTC/ETH: CoinGecko API
-- Funding rate BTC: Bybit API (fapi.binance.com bloqueado desde GitHub)
+- Funding rate BTC: OKX API (Binance y Bybit bloquean IPs de GitHub)
 - ETH MVRV: CoinMetrics community API
 - Fear & Greed: alternative.me API
 

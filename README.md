@@ -112,8 +112,6 @@ cryptotrader/
 |
 |-- strategies/                  # SMA/RSI/Bollinger (tested, not used in prod)
 |-- backtesting/                 # Backtest engines and metrics
-|-- research/                    # 9 numbered research analyses
-|-- scripts/                     # Personal planning scripts
 |-- tests/                       # 41 tests
 |
 |-- .github/workflows/

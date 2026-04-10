@@ -112,7 +112,7 @@ class AlertLog(Base):
     btc_price = Column(Float, nullable=True)
     eth_price = Column(Float, nullable=True)
     metric_value = Column(Float, nullable=True)  # the value that triggered the alert
-    notified = Column(Integer, nullable=False, default=0)  # 1 if telegram sent
+    notified = Column(Integer, nullable=False, default=0)  # 1 if discord sent
 
     def __repr__(self) -> str:
         return f"<AlertLog {self.alert_type} {self.severity} {self.timestamp}>"
