@@ -288,6 +288,7 @@ def check_and_alert() -> list[dict]:
                             "btc_price_eur": prices.get("btc_price_eur"),
                             "btc_change": btc_change,
                             "eth_price": eth_price,
+                            "eth_price_eur": prices.get("eth_price_eur"),
                             "recommendation": (
                                 "DCA-out nivel {:d} (${:,.0f}): vende el {}% de tus BTC en Trade Republic. "
                                 "Orden de mercado o limite a {:,.0f} EUR. "
@@ -328,6 +329,7 @@ def check_and_alert() -> list[dict]:
                     if not _already_alerted(session, alert_type, hours=720):  # 30 dias
                         details = {
                             "btc_price": btc_price,
+                            "btc_price_eur": prices.get("btc_price_eur"),
                             "eth_price": eth_price,
                             "eth_price_eur": prices.get("eth_price_eur"),
                             "mvrv": mvrv,

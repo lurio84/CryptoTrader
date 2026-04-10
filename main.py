@@ -293,6 +293,98 @@ def cmd_monitor(args: argparse.Namespace) -> None:
     start_monitor(interval_hours=interval)
 
 
+def cmd_rebalance(args: argparse.Namespace) -> None:
+    """Calculate if annual portfolio rebalancing is needed."""
+    import requests as req
+
+    # Target allocations derived from monthly Sparplan contributions (CLAUDE.md):
+    # BTC 32 EUR + ETH 8 EUR + other 100 EUR = 140 EUR total
+    # Threshold from research: rebalance when drift > 10pp above target (optimal)
+    BTC_TARGET_PCT = 32 / 140 * 100   # 22.86%
+    ETH_TARGET_PCT = 8 / 140 * 100    # 5.71%
+    OTHER_TARGET_PCT = 100 / 140 * 100  # 71.43%
+    THRESHOLD_PP = 10.0
+
+    print("CryptoTrader - Rebalanceo Anual")
+    print("=" * 57)
+
+    # Fetch current EUR prices
+    try:
+        resp = req.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": "bitcoin,ethereum", "vs_currencies": "eur"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        cg = resp.json()
+        btc_eur = cg["bitcoin"]["eur"]
+        eth_eur = cg["ethereum"]["eur"]
+    except Exception as e:
+        print(f"Error fetching prices from CoinGecko: {e}")
+        sys.exit(1)
+
+    btc_value = args.btc * btc_eur
+    eth_value = args.eth * eth_eur
+    other_value = args.other
+    total = btc_value + eth_value + other_value
+
+    if total <= 0:
+        print("Error: el total de la cartera es 0.")
+        sys.exit(1)
+
+    btc_pct = btc_value / total * 100
+    eth_pct = eth_value / total * 100
+    other_pct = other_value / total * 100
+    btc_drift = btc_pct - BTC_TARGET_PCT
+    eth_drift = eth_pct - ETH_TARGET_PCT
+
+    print(f"\n  Precios actuales (EUR):")
+    print(f"    BTC: {btc_eur:>10,.0f} EUR")
+    print(f"    ETH: {eth_eur:>10,.0f} EUR")
+
+    print(f"\n  Cartera actual:")
+    print(f"    BTC:  {btc_value:>9,.0f} EUR  |  {btc_pct:5.1f}%  vs target {BTC_TARGET_PCT:.1f}%  (drift {btc_drift:+.1f}pp)")
+    print(f"    ETH:  {eth_value:>9,.0f} EUR  |  {eth_pct:5.1f}%  vs target {ETH_TARGET_PCT:.1f}%  (drift {eth_drift:+.1f}pp)")
+    print(f"    Otro: {other_value:>9,.0f} EUR  |  {other_pct:5.1f}%  vs target {OTHER_TARGET_PCT:.1f}%")
+    print(f"    TOTAL:{total:>9,.0f} EUR")
+
+    print(f"\n  Analisis rebalanceo (threshold: >{THRESHOLD_PP:.0f}pp sobre target):")
+    needs_rebalance = False
+
+    for asset, pct, target, drift, value, price in [
+        ("BTC", btc_pct, BTC_TARGET_PCT, btc_drift, btc_value, btc_eur),
+        ("ETH", eth_pct, ETH_TARGET_PCT, eth_drift, eth_value, eth_eur),
+    ]:
+        if drift > THRESHOLD_PP:
+            target_value = total * target / 100
+            sell_eur = value - target_value
+            sell_units = sell_eur / price
+            print(f"    [REBALANCEAR] {asset} esta {drift:.1f}pp sobre target")
+            print(f"      -> Vender {sell_eur:,.0f} EUR ({sell_units:.6f} {asset}) en Trade Republic")
+            print(f"      -> Reinvertir en activos bajo su target (S&P500, ETH, etc.)")
+            needs_rebalance = True
+        elif drift < -THRESHOLD_PP:
+            target_value = total * target / 100
+            buy_eur = target_value - value
+            buy_units = buy_eur / price
+            print(f"    [REBALANCEAR] {asset} esta {abs(drift):.1f}pp bajo target")
+            print(f"      -> Comprar {buy_eur:,.0f} EUR ({buy_units:.6f} {asset}) extra en Trade Republic")
+            needs_rebalance = True
+        else:
+            status = "OK" if abs(drift) <= THRESHOLD_PP / 2 else "WATCH"
+            print(f"    [{status}] {asset}: drift {drift:+.1f}pp  (threshold en {THRESHOLD_PP:.0f}pp)")
+
+    if needs_rebalance:
+        print(f"\n  Costes estimados:")
+        print(f"    Fee TR: 1 EUR flat por operacion de venta")
+        print(f"    IRPF: tributa la plusvalia (precio venta - coste medio FIFO)")
+        print(f"    Investigacion: rebalanceo anual mejora CAGR 14.7% vs 12.5% sin rebalanceo")
+    else:
+        print(f"\n  No es necesario rebalancear. Cartera dentro de rangos normales.")
+
+    print(f"\n{'='*57}")
+
+
 def cmd_info(args: argparse.Namespace) -> None:
     """Show current configuration and status."""
     print("CryptoTrader Bot v0.1.0")
@@ -353,6 +445,13 @@ def main() -> None:
     p_mon = subparsers.add_parser("monitor", help="Run alert monitor")
     p_mon.add_argument("--interval", type=int, default=1, help="Check interval in hours (default: 1)")
 
+    # rebalance
+    p_reb = subparsers.add_parser("rebalance", help="Check if annual rebalancing is needed")
+    p_reb.add_argument("--btc", type=float, required=True, help="BTC holdings (units, e.g. 0.05)")
+    p_reb.add_argument("--eth", type=float, required=True, help="ETH holdings (units, e.g. 0.5)")
+    p_reb.add_argument("--other", type=float, required=True,
+                       help="Non-crypto total value in EUR (S&P500 + semiconductors + Realty Income + Uranium)")
+
     # info
     subparsers.add_parser("info", help="Show configuration")
 
@@ -367,6 +466,7 @@ def main() -> None:
         "check": cmd_check,
         "dashboard": cmd_dashboard,
         "monitor": cmd_monitor,
+        "rebalance": cmd_rebalance,
         "info": cmd_info,
     }
 

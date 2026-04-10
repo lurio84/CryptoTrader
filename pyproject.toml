@@ -2,7 +2,7 @@
 name = "cryptotrader"
 version = "0.1.0"
 description = "Personal crypto advisor with backtesting, dashboard and Discord alerts"
-requires-python = ">=3.12,<3.15"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "ccxt>=4.0",
     "pandas>=2.2",
