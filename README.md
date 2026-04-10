@@ -80,7 +80,7 @@ Setup:
 | Source | Data |
 |--------|------|
 | CoinGecko | BTC/ETH prices and 24h change |
-| Bybit | BTC funding rate (live) |
+| OKX | BTC funding rate (live) |
 | CoinMetrics | ETH MVRV ratio |
 | alternative.me | Fear & Greed Index |
 

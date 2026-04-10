@@ -182,10 +182,16 @@ def cmd_check(args: argparse.Namespace) -> None:
     except Exception:
         mvrv = None
 
-    # Funding rate (live from exchange)
+    # Funding rate (live from OKX - no geo-restrictions from GitHub)
     try:
-        fr = exchange.fetch_funding_rate("BTC/USDT:USDT")
-        funding = fr.get("fundingRate")
+        fr = req.get(
+            "https://www.okx.com/api/v5/public/funding-rate",
+            params={"instId": "BTC-USDT-SWAP"},
+            timeout=10,
+        )
+        fr.raise_for_status()
+        fr_data = fr.json().get("data", [])
+        funding = float(fr_data[0]["fundingRate"]) if fr_data else None
     except Exception:
         funding = None
 
