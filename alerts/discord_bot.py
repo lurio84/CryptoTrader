@@ -118,18 +118,17 @@ def _fetch_prices() -> dict:
 
 
 def _fetch_funding_rate() -> float | None:
-    """Fetch current BTC funding rate from Bybit (no geo-restrictions)."""
+    """Fetch current BTC funding rate from OKX (no geo-restrictions from GitHub)."""
     try:
         resp = requests.get(
-            "https://api.bybit.com/v5/market/funding/history",
-            params={"category": "linear", "symbol": "BTCUSDT", "limit": 1},
+            "https://www.okx.com/api/v5/public/funding-rate",
+            params={"instId": "BTC-USDT-SWAP"},
             timeout=10,
         )
         resp.raise_for_status()
-        data = resp.json()
-        entries = data.get("result", {}).get("list", [])
-        if entries:
-            return float(entries[0]["fundingRate"])
+        data = resp.json().get("data", [])
+        if data:
+            return float(data[0]["fundingRate"])
         return None
     except Exception as e:
         logger.error("Failed to fetch funding rate: %s", e)
