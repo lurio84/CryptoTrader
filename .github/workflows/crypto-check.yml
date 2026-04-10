@@ -35,10 +35,3 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python main.py check --notify
-
-      - name: Save alert DB cache
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: data/cryptotrader.db
-          key: cryptotrader-db-${{ github.run_id }}
