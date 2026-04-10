@@ -21,13 +21,17 @@ dashboard = [
     "jinja2>=3.1",
 ]
 alerts = []
+research = [
+    "yfinance>=0.2",
+    "requests>=2.31",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "pytest-asyncio>=0.24",
     "ruff>=0.5",
 ]
-all = ["cryptotrader[dashboard,alerts,dev]"]
+all = ["cryptotrader[dashboard,alerts,dev,research]"]
 
 [tool.setuptools.packages.find]
 include = ["config*", "data*", "strategies*", "backtesting*", "alerts*", "dashboard*"]

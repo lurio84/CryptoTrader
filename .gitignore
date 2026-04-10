@@ -9,3 +9,5 @@ dist/
 .pytest_cache/
 htmlcov/
 cryptotrader.egg-info/
+data/research_cache/
+.claude/settings.local.json
