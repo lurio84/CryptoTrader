@@ -26,7 +26,7 @@ jobs:
         with:
           path: data/cryptotrader.db
           key: cryptotrader-db-${{ github.run_id }}
-          restore-keys: cryptotrader-db
+          restore-keys: cryptotrader-db-
 
       - name: Install dependencies
         run: pip install -e ".[all]"
