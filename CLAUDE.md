@@ -180,6 +180,53 @@ Script a crear: `backtesting/exit_signals_research3.py`
 4. Halving cycle timing (deterministico, interesante para planificacion)
 5. Active addresses / CDD (mas complejo, menor prioridad)
 
+### Rigor estadistico a incorporar en exit_signals_research3.py
+
+Los scripts actuales tienen limitaciones metodologicas conocidas que hay que corregir:
+
+**Problemas actuales:**
+- Overfitting in-sample: todos los tests usan los mismos datos con los que se disenan las senales
+  (ej. $100k BTC no fue elegido a ciegas, sabiendo que BTC llego ahi -> infla el resultado)
+- Multiple comparisons: ~20 senales testadas = ~1 falso positivo esperado por azar al 5%
+  No se aplica correccion de Bonferroni ni FDR
+- Sin intervalos de confianza: "30d mean = +10.6%" no sabemos si es estadisticamente significativo
+  Con N=4 eventos (BTC crash), casi seguro que NO lo es aunque el numero parezca grande
+- Sin validacion out-of-sample: nunca "entreno en 2018-2022, valido en 2022-2026"
+- Autocorrelacion en retornos forward: dias consecutivos en el mismo bin tienen retornos solapados
+
+**Confianza real de las senales actuales:**
+- Rebalanceo anual: ALTA (N=9 independientes, efecto en Calmar consistente)
+- ETH MVRV < 0.8 como compra: MEDIA-ALTA (N=535 dias, pero in-sample)
+- BTC crash >15% como compra: BAJA (N=4, insuficiente estadisticamente)
+- BTC $100k / ETH $3k como venta: DESCRIPTIVA, no predictiva (N=1, elegidos con hindsight)
+- Senales descartadas: descarte SI es fiable (efectos nulos/negativos son robustos)
+
+**Codigo a anadir en el proximo script para ser mas riguroso:**
+```python
+from scipy import stats
+import numpy as np
+
+def bootstrap_ci(returns, n_boot=10000, ci=0.95):
+    means = [np.mean(np.random.choice(returns, len(returns))) for _ in range(n_boot)]
+    lo = np.percentile(means, (1-ci)/2 * 100)
+    hi = np.percentile(means, (1+ci/2) * 100)
+    return lo, hi
+
+def test_signal(signal_returns, baseline_returns):
+    # Mann-Whitney U: retornos senal < baseline?
+    stat, p = stats.mannwhitneyu(signal_returns, baseline_returns, alternative='less')
+    return p  # p < 0.05 -> senal da retornos significativamente menores
+
+# Resultado honesto: "30d mean -5pp vs baseline, p=0.03, CI [-8%, -2%]"
+# En lugar de solo el numero sin contexto estadistico
+```
+
+**Metodologia target para exit_signals_research3.py:**
+- Bootstrap CI (95%) en cada bin de forward returns
+- Mann-Whitney U test para cada senal vs baseline
+- Separar periodo de exploracion (2018-2022) y validacion (2022-2026)
+- Nota explicita de multiple comparisons al resumir resultados
+
 ## Sistema en produccion
 
 GitHub Actions ejecuta check cada 4h automaticamente (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC).
