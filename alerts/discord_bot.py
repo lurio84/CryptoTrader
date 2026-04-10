@@ -249,6 +249,36 @@ def check_and_alert() -> list[dict]:
                     _log_alert(session, alert_type, "yellow", btc_price, eth_price, mvrv, sent)
                     triggered.append({"type": alert_type, "severity": "yellow", "sent": sent})
 
+        # Signal 4: BTC profit-taking level ($100k) -- validated by Analysis 2 (+68pp vs hold)
+        if btc_price is not None and btc_price >= 100_000:
+            alert_type = "btc_profit_level"
+            if not _already_alerted(session, alert_type, hours=720):  # 30 days
+                details = {
+                    "btc_price": btc_price, "btc_change": btc_change, "eth_price": eth_price,
+                    "recommendation": (
+                        "Research: selling 33% at $100k adds ~+68pp vs hold over the cycle. "
+                        "Consider 25-33% partial profit on BTC in Trade Republic."
+                    ),
+                }
+                sent = send_discord_message(_format_embed("BTC Profit-Taking Level ($100k)", "orange", details))
+                _log_alert(session, alert_type, "orange", btc_price, eth_price, btc_price, sent)
+                triggered.append({"type": alert_type, "severity": "orange", "sent": sent})
+
+        # Signal 5: ETH profit-taking level ($3k) -- validated by Analysis 4 (+69pp vs hold)
+        if eth_price is not None and eth_price >= 3_000:
+            alert_type = "eth_profit_level"
+            if not _already_alerted(session, alert_type, hours=720):  # 30 days
+                details = {
+                    "btc_price": btc_price, "eth_price": eth_price, "mvrv": mvrv,
+                    "recommendation": (
+                        "Research: selling 33% at $3k adds ~+69pp vs hold over the cycle. "
+                        "Consider 25-33% partial profit on ETH in Trade Republic."
+                    ),
+                }
+                sent = send_discord_message(_format_embed("ETH Profit-Taking Level ($3k)", "orange", details))
+                _log_alert(session, alert_type, "orange", btc_price, eth_price, eth_price, sent)
+                triggered.append({"type": alert_type, "severity": "orange", "sent": sent})
+
     if not triggered:
         logger.info("No alerts triggered. All metrics within normal ranges.")
 

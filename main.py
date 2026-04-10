@@ -237,6 +237,16 @@ def cmd_check(args: argparse.Namespace) -> None:
         print(f"          -> Consider increasing ETH Sparplan temporarily")
         has_alert = True
 
+    if btc_price is not None and btc_price >= 100_000:
+        print(f"    [ORANGE] BTC Profit Level: ${btc_price:,.0f} >= $100k")
+        print(f"          -> Research: 25-33% partial profit validated (+68pp vs hold, Analysis 2)")
+        has_alert = True
+
+    if eth_price is not None and eth_price >= 3_000:
+        print(f"    [ORANGE] ETH Profit Level: ${eth_price:,.0f} >= $3k")
+        print(f"          -> Research: 25-33% partial profit validated (+69pp vs hold, Analysis 4)")
+        has_alert = True
+
     if not has_alert:
         print(f"    [OK] No action needed. Sparplan running as usual.")
 

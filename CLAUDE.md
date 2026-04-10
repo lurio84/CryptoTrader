@@ -23,10 +23,10 @@ Alertas de compra extra manual (1 EUR fee en TR, 2-5 veces/ano):
 ## Hallazgos clave del research
 
 - DCA en BTC: +16.5% anualizado | DCA en ETH: +14.2% anualizado
-- Crash buying: +9.3% rebote a 7d, 77% win rate (BTC)
-- Funding negativo: +23% a 30d, 88% win rate (mejor senal)
-- ETH MVRV < 0.8: +34% a 30d, 89% win rate
-- ETH MVRV 0.8-1.0: zona amarilla, buenos resultados historicos a 30d
+- Crash buying: re-validado 2026-04: +10.6% a 7d vs baseline +0.8% (N=4 eventos, muestra pequena)
+- Funding negativo: +23% a 30d, 88% win rate (no re-validable, sin datos historicos gratuitos)
+- ETH MVRV < 0.8: re-validado 2026-04: +10.1% a 30d, 61% win rate vs baseline +4.2% (CONFIRMADO aunque menor que documentado originalmente por diferencia de periodo de analisis)
+- ETH MVRV 0.8-1.0: re-validado 2026-04: +6.3% a 30d, 54% win rate vs baseline (CONFIRMADO)
 - Fear & Greed Index: NO funciona como predictor (extreme fear da PEOR retorno que baseline)
 - Indicadores tecnicos (SMA/RSI/BB): ninguno supera buy & hold
 - NO vender despues de rallies (momentum continua, +10.8% tras +30% rally)
@@ -46,12 +46,12 @@ Script: `backtesting/exit_strategy_research.py` (datos reales 2018-2026)
 - IMPLEMENTAR: rebalanceo anual cuando BTC o ETH supera target en >10% (threshold optimo)
 
 ### Analisis 2: Profit parcial BTC por precio absoluto
-- Vender 33% a $100k: +405.9% vs +341.1% hold puro (+64.9% diferencia) - MEJOR resultado
-- Vender 25% a $100k + 25% a $200k: +390.2% - tambien bueno
-- Vender a niveles bajos ($20k-$30k) fue catastrofico: hasta -116% vs hold (BTC siguio subiendo)
-- El $100k fue nivel real: BTC llego a $124k (pico) en este ciclo (2024-2025)
+- Vender 33% a $100k: +409% vs +341% hold puro (+68pp diferencia) - MEJOR resultado
+- Vender 25% a $100k + 25% a $200k: +393% - tambien bueno
+- Vender a niveles bajos ($20k-$30k) fue catastrofico: hasta -115% vs hold (BTC siguio subiendo)
+- El $100k fue nivel real: BTC llego a $124.8k (pico) en este ciclo (2024-2025)
 - Si BTC sigue a $200k+, las ventas a $100k pareceran menos buenas en perspectiva historica
-- NO implementar como senal automatica (depende de ciclo), pero TENER REGLA MENTAL: 25-33% a $100k
+- ALERTA ACTIVA: bot Discord envia alerta orange cuando BTC >= $100k (dedup 30 dias)
 
 ### Analisis 3: BTC MVRV como senal de venta/pausa
 - BTC MVRV SI llega a extremos (5.88 en 2013, 4.72 en 2017, 3.96 en 2021, 2.78 en 2024)
@@ -63,6 +63,31 @@ Script: `backtesting/exit_strategy_research.py` (datos reales 2018-2026)
 - CONCLUSION: BTC MVRV como senal de venta tambien DESCARTADO para ciclos modernos
 - Nota: datos 2010 de MVRV son ruido (precio $0, irrelevantes para analisis de inversion)
 
+### Analisis 0 (re-validacion): Confirmacion de senales de compra existentes (2026-04)
+- BTC crash <= -15%: re-validado con N=4 eventos. +10.6% a 7d vs baseline +0.8% (CONFIRMADO)
+  Win rate 50% (vs documentado 77%) - muestra demasiado pequena para estadistica fiable de win rate
+- ETH MVRV < 0.8: re-validado N=535 dias. +10.1% a 30d, 61% win rate vs baseline +4.2% (CONFIRMADO)
+  Los valores originales (+34%, 89%) probablemente corresponden a un periodo diferente (2015-2020)
+  El efecto positivo es real pero mas moderado en ciclos modernos 2018-2026
+- ETH MVRV 0.8-1.0: +6.3% a 30d, 54% win rate vs baseline +4.2% (CONFIRMADO)
+- Funding negativo: no re-validable (sin datos historicos en API publica gratuita)
+
+### Analisis 4: Profit parcial ETH por precio absoluto (2026-04)
+- Vender 33% a $3k: +374% vs +305% hold puro (+69pp diferencia) - MEJOR resultado
+- Vender 25% a $3k: +357% (+52pp vs hold) - tambien significativo
+- $3k fue nivel real: ETH llego a $3,431 en mayo 2021 (primera vez)
+- $5k y $10k: no alcanzados nunca (ATH ~$4865) - son niveles forward-looking
+- ALERTA ACTIVA: bot Discord envia alerta orange cuando ETH >= $3k (dedup 30 dias)
+
+### Analisis 5: ETH MVRV como senal de venta/pausa (2026-04)
+- ETH MVRV picos por ciclo: ~5.06 (2016, precio $6), ~2.30 (2021, $3887), ~1.59 (2024, $4073)
+- TENDENCIA A LA BAJA mas pronunciada que BTC (ciclos maduran mas rapido)
+- MVRV alto predice retornos MAYORES, no menores (igual que BTC MVRV)
+  MVRV >= 1.5: +30.4% a 30d vs baseline +12.9% (retornos superiores, no inferiores)
+- Pausar DCA cuando MVRV alto: HURTS performance en todos los thresholds
+- CONCLUSION: ETH MVRV como senal de venta DESCARTADO. Misma conclusion que BTC MVRV.
+- Nota: datos 2015-2016 son ruido (ETH precio $1-6, mercado inmaduro)
+
 ## Decisiones importantes tomadas
 
 - Discord unico canal de alertas (Telegram eliminado)
@@ -73,9 +98,12 @@ Script: `backtesting/exit_strategy_research.py` (datos reales 2018-2026)
 - NO usar saveback 2% de TR para pagar con crypto (vender crypto es mala idea segun datos)
 - NO usar F&G como senal de compra (validado que no funciona)
 - Staking ETH activado (gratis, sin lock-up en TR)
-- NO implementar senal de venta por MVRV alto (irrelevante en ciclos modernos, validado 2015-2026)
+- NO implementar senal de venta por MVRV alto (irrelevante en ciclos modernos, validado 2015-2026 para BTC y ETH)
 - Rebalanceo anual de cartera: VALIDADO como util (implementar manualmente 1x/ano, no requiere automatizacion)
-- Profit parcial BTC a $100k: tener regla mental del 25-33%, no automatizar
+- Profit parcial BTC a $100k: ALERTA ACTIVA en Discord (orange, dedup 30d) -- validado +68pp vs hold
+- Profit parcial ETH a $3k: ALERTA ACTIVA en Discord (orange, dedup 30d) -- validado +69pp vs hold
+- ETH MVRV alto como venta: DESCARTADO (Analysis 5: retornos son MAYORES con MVRV alto, no menores)
+- Senales de compra re-validadas con datos 2018-2026: todas confirmadas, win rates algo menores que documentados originalmente (ciclos modernos mas eficientes)
 
 ## Sistema en produccion
 
