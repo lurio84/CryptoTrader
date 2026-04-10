@@ -51,7 +51,7 @@ Script: `backtesting/exit_strategy_research.py` (datos reales 2018-2026)
 - Vender a niveles bajos ($20k-$30k) fue catastrofico: hasta -115% vs hold (BTC siguio subiendo)
 - El $100k fue nivel real: BTC llego a $124.8k (pico) en este ciclo (2024-2025)
 - Si BTC sigue a $200k+, las ventas a $100k pareceran menos buenas en perspectiva historica
-- ALERTA ACTIVA: bot Discord envia alerta orange cuando BTC >= $100k (dedup 30 dias)
+- SUSTITUIDO por DCA-out sistematico (ver seccion research3/research4)
 
 ### Analisis 3: BTC MVRV como senal de venta/pausa
 - BTC MVRV SI llega a extremos (5.88 en 2013, 4.72 en 2017, 3.96 en 2021, 2.78 en 2024)
@@ -77,7 +77,7 @@ Script: `backtesting/exit_strategy_research.py` (datos reales 2018-2026)
 - Vender 25% a $3k: +357% (+52pp vs hold) - tambien significativo
 - $3k fue nivel real: ETH llego a $3,431 en mayo 2021 (primera vez)
 - $5k y $10k: no alcanzados nunca (ATH ~$4865) - son niveles forward-looking
-- ALERTA ACTIVA: bot Discord envia alerta orange cuando ETH >= $3k (dedup 30 dias)
+- SUSTITUIDO por DCA-out sistematico (ver seccion research3/research4)
 
 ### Analisis 5: ETH MVRV como senal de venta/pausa (2026-04)
 - ETH MVRV picos por ciclo: ~5.06 (2016, precio $6), ~2.30 (2021, $3887), ~1.59 (2024, $4073)
@@ -129,6 +129,76 @@ Motivacion: buscar senales de venta con mas eventos historicos que N=1 (precio a
   se activa demasiado pronto en el ciclo para ser un trigger de venta fiable
 - La estrategia validada sigue siendo: DCA + rebalanceo anual + profit-taking a milestones
 
+## Research 3: On-chain + DCA-out sistematico + rigor estadistico (2026-04)
+
+Script: `backtesting/exit_signals_research3.py`
+Mejoras metodologicas: bootstrap CI 95%, Mann-Whitney U test, split exploracion/validacion (2018-2022 / 2022-2026), nota de multiple comparisons.
+
+### Analisis 1: NVT ratio proxy (CapMrktCurUSD / TxTfrCnt / PriceUSD)
+- NVTAdj no disponible en tier gratuito CoinMetrics, se usa proxy propio
+- Rango en 2018-2026: 14.5 - 37.5, mediana 23.5
+- Bin extreme NVT (>= p90, ~30): 30d mean = -4.0%, delta = -7.7pp vs baseline, p=0.000
+- PERO: todos los eventos extreme NVT ocurrieron en 2018-2022 (N=302 dias)
+  En validacion 2022-2026: N=0 eventos. La senal NO generaliza fuera de muestra.
+- CONCLUSION: NVT DESCARTADO como senal de venta. Probable artefacto del periodo 2018-2022.
+
+### Analisis 2: DCA-out sistematico -- MEJOR RESULTADO DE LOS 3 SCRIPTS
+- Filosofia: no predecir el techo, reducir exposicion gradualmente conforme sube
+- Regla implementada: vender 3% de holdings por cada $20k por encima de $80k (BTC)
+- Backtest sin impuestos (2018-2026, BTC $13k -> $68k, ATH $124k):
+  - "3% per $20k above $80k": +416% vs hold +341% (+75pp, 11 ventas)
+  - "5% per $20k above $80k": +454% vs hold (+113pp)
+  - "3% per $10k above $80k": +483% vs hold (+142pp, 29 ventas)
+- Backtest CON impuestos IRPF espana (FIFO cost basis):
+  - "3% per $10k above $80k": +388% vs hold +273% (+115pp DESPUES de impuestos)
+  - Hold pago 2.350 EUR impuestos; estrategia pago 3.266 EUR pero aun asi gana +115pp
+- Break-even: DCA-out gana si BTC termina el ciclo por debajo de ~$108k
+  Si BTC sube a $200k+ y se queda ahi permanentemente, hold puro gana
+  Historicamente BTC siempre ha corregido un 70-80% desde ATH
+- IMPLEMENTADO: alertas Discord activas (ver seccion de alertas activas)
+
+### Analisis 3: Weekly RSI como senal de venta
+- RSI semanal >= 85 (N=12 eventos en 2018-2026, 20 semanas)
+- 30d mean = +14.8% (+11.1pp SOBRE baseline). Mismo patron que MVRV y MA ratio.
+- En validacion 2022-2026: RSI>=85 da +1.9% a 30d (neutral, no negative)
+- CONCLUSION: Weekly RSI DESCARTADO. Overbought extremo en crypto = momentum continua.
+
+### Analisis 4: Halving cycle timing
+- Picos historicos: 17 meses post-halving 2016, 18 meses post-2020, 18 meses post-2024
+- Fase mas debil: meses 18-24 post-halving: 30d = -7.2% (unica fase con retorno negativo)
+- Simulacion (vender 25% al mes 12, pausar DCA meses 12-18): -0.2pp a -11pp vs hold
+- CONCLUSION: Halving timing INFORMATIVO para planificar, no mecanico. N=2 ciclos en datos.
+  Proximo ciclo de riesgo: abril-octubre 2026 (12-18 meses post-halving abril 2024)
+
+### Analisis 5: Direcciones activas + CDD proxy
+- Divergencia activas (precio +50%, activas -20%): N=0 eventos en 2018-2026
+- CDD proxy (SplyCur changes, no CDD real): spike >= p90 da 30d=-0.8pp delta=-4.6pp (N=29)
+- CONCLUSION: Datos insuficientes o metrica proxy demasiado debil. CDD real requiere datos de pago.
+
+## Research 4: Validacion pre-implementacion DCA-out (2026-04)
+
+Script: `backtesting/exit_signals_research4.py`
+
+### Parte 1: Impacto fiscal IRPF espana
+- Modelo: FIFO cost basis, brackets 2024 (19%/21%/23%/27%/28%)
+- Hold puro paga 2.350 EUR impuestos en venta final (20.0% efectivo de 11.760 EUR ganancia)
+- DCA-out "3% per $10k above $80k": paga 3.266 EUR en impuestos (distribuidos 2024-2026)
+  pero aun asi gana +115pp vs hold despues de impuestos
+- Tax drag del DCA-out vs no-tax: -95pp (paga impuestos antes y en mayor cantidad)
+- Tax drag del hold vs no-tax: -68pp
+- CONCLUSION: impuestos favorecen al hold en terminos de timing y cantidad, pero el
+  DCA-out captura suficiente ganancia extra para compensar con margen amplio.
+
+### Parte 2: Analisis de overfitting por precio final
+- El backtest termina con BTC a $68k (abajo desde ATH $124k). DCA-out brilla en este escenario.
+- Si BTC termina el ciclo en $108k: empate entre DCA-out y hold
+- Si BTC termina por encima de $108k permanentemente: hold gana
+- Estado de cartera al final del periodo (2026-04-01) con "3% per $10k above $80k":
+  Hold tiene 0.2233 BTC + 0 EUR cash
+  DCA-out tiene 0.0942 BTC + 11.132 EUR cash (60% menos BTC, pero 11k EUR asegurados)
+- CONCLUSION: overfitting es real pero bounded. El riesgo es "BTC sube a $300k y no baja".
+  Historicamente improbable, pero posible en ciclos futuros.
+
 ## Decisiones importantes tomadas
 
 - Discord unico canal de alertas (Telegram eliminado)
@@ -141,91 +211,49 @@ Motivacion: buscar senales de venta con mas eventos historicos que N=1 (precio a
 - Staking ETH activado (gratis, sin lock-up en TR)
 - NO implementar senal de venta por MVRV alto (irrelevante en ciclos modernos, validado 2015-2026 para BTC y ETH)
 - Rebalanceo anual de cartera: VALIDADO como util (implementar manualmente 1x/ano, no requiere automatizacion)
-- Profit parcial BTC a $100k: ALERTA ACTIVA en Discord (orange, dedup 30d) -- validado +68pp vs hold
-- Profit parcial ETH a $3k: ALERTA ACTIVA en Discord (orange, dedup 30d) -- validado +69pp vs hold
+- Profit parcial BTC a $100k y ETH a $3k: SUSTITUIDOS por DCA-out sistematico (mas robusto, N alto)
 - ETH MVRV alto como venta: DESCARTADO (Analysis 5: retornos son MAYORES con MVRV alto, no menores)
 - Senales de compra re-validadas con datos 2018-2026: todas confirmadas, win rates algo menores que documentados originalmente (ciclos modernos mas eficientes)
 - MA ratio como senal de venta: DESCARTADO (Analysis A 2026-04: retornos son MAYORES en zona sobrecalentada, igual patron que MVRV)
 - Gain-from-low >=500% como senal de venta mecanica: DESCARTADO como trigger. Informativo: 90d retorno -12% vs +14.3% baseline, pero se activa demasiado pronto en el ciclo
 - Venta cuando MA ratio > 2.0x: DESTRUYE retornos (-78pp a -121pp vs hold segun % vendido)
+- NVT ratio como senal de venta: DESCARTADO (research3: no generaliza fuera de muestra 2022-2026)
+- Weekly RSI como senal de venta: DESCARTADO (research3: mismo patron que MVRV, momentum continua)
+- Halving timing como regla mecanica: DESCARTADO. Informativo para planificacion (N=2 ciclos)
+- DCA-out sistematico BTC: ALERTA ACTIVA -- 3% cada $20k por encima de $80k, cooldown 30d
+- DCA-out sistematico ETH: ALERTA ACTIVA -- 3% cada $1k por encima de $3k, cooldown 30d
+- Precios en EUR incluidos en mensajes Discord (CoinGecko devuelve USD y EUR en misma llamada)
+- ETH staking en TR: pendiente verificar si venta de ETH stakeado es inmediata o requiere unstaking
+
+## Alertas activas en produccion (estado 2026-04)
+
+| Alert type (DB) | Condicion | Accion | Severidad | Dedup |
+|---|---|---|---|---|
+| btc_crash | BTC cae >15% en 24h | Compra 100-150 EUR BTC | red | 6h |
+| funding_negative | Funding rate < -0.01% | Compra 100 EUR BTC | orange | 24h |
+| mvrv_critical | ETH MVRV < 0.8 | Compra 100 EUR ETH | red | 24h |
+| mvrv_low | ETH MVRV 0.8-1.0 | Aumentar Sparplan ETH | yellow | 24h |
+| btc_dca_out_Xk | BTC >= $80k, $100k, $120k... (+$20k) | Vender 3% BTC en TR | orange | 30d |
+| eth_dca_out_Xk | ETH >= $3k, $4k, $5k... (+$1k) | Vender 3% ETH en TR | orange | 30d |
+
+Nota: los mensajes Discord incluyen precio en EUR (CoinGecko devuelve usd+eur en misma llamada).
 
 ## Investigacion pendiente (proxima sesion)
 
-Script a crear: `backtesting/exit_signals_research3.py`
+### Pendiente de baja prioridad
+- **Venta por coste-base propio**: vender cuando ganancia personal > X%. Requiere conocer
+  precio medio de compra del usuario. No implementable sin datos personales.
+- **CDD real**: Coin Days Destroyed requiere datos de pago (no disponible en CoinMetrics free).
+  Si se consigue acceso a datos historicos, podria ser senal de venta relevante.
+- **Ajuste parametros DCA-out para proximo ciclo**: cuando BTC supere ATH $124k con claridad,
+  reconsiderar si el nivel de inicio ($80k) sigue siendo el optimo o conviene subirlo.
 
-### Senales on-chain con datos CoinMetrics (gratuitos)
-- **NVT ratio** (`NVTAdj`): market cap / volumen on-chain. Alto NVT = burbuja especulativa.
-  Es el "P/E ratio" de Bitcoin. Conceptualmente distinto a MVRV (uso de red vs valor realizado).
-- **Active addresses divergencia** (`AdrActCnt`): precio sube pero activas se estancan = bearish.
-  Detecta cuando el rally es especulativo y no hay mas usuarios entrando.
-- **Coin Days Destroyed** (CDD): cuando HODLers veteranos mueven monedas dormidas = suelen vender.
-  Picos de CDD historicamente cerca de tops. Metrica en CoinMetrics.
-- **Weekly RSI > 85**: RSI semanal calculable desde precios diarios. Mas estable que diario.
-  Testear cuantos eventos N hay en 2018-2026 con RSI semanal extremo.
-
-### Estrategias alternativas que NO requieren predecir el techo
-- **DCA-out sistematico**: reduccion gradual conforme sube precio.
-  Ejemplo: vender 3% holdings BTC por cada $20k que suba sobre $80k.
-  No requiere señal. N=muchos por diseno. Backtest: como compara vs hold y vs alertas absolutas.
-- **Timing por ciclo de halving**: halvings son deterministicos (2012, 2016, 2020, 2024, ~2028).
-  Historicamente pico ocurre 12-18 meses post-halving. Halving 2024 fue abril -> zona de riesgo
-  seria abril-octubre 2025 (ya paso). Util para planificar proximo ciclo (2026-2027).
-- **Venta por coste-base propio**: vender cuando tu ganancia personal > X%.
-  Relativo a TU precio medio de compra, no al mercado. Requiere conocer coste base.
-
-### Prioridad sugerida
-1. NVT ratio (conceptualmente diferente, puede sorprender)
-2. DCA-out sistematico (cambia el problema: no predecir, sino reducir sistematicamente)
-3. Weekly RSI extremo (rapido de implementar, usa datos ya cacheados)
-4. Halving cycle timing (deterministico, interesante para planificacion)
-5. Active addresses / CDD (mas complejo, menor prioridad)
-
-### Rigor estadistico a incorporar en exit_signals_research3.py
-
-Los scripts actuales tienen limitaciones metodologicas conocidas que hay que corregir:
-
-**Problemas actuales:**
-- Overfitting in-sample: todos los tests usan los mismos datos con los que se disenan las senales
-  (ej. $100k BTC no fue elegido a ciegas, sabiendo que BTC llego ahi -> infla el resultado)
-- Multiple comparisons: ~20 senales testadas = ~1 falso positivo esperado por azar al 5%
-  No se aplica correccion de Bonferroni ni FDR
-- Sin intervalos de confianza: "30d mean = +10.6%" no sabemos si es estadisticamente significativo
-  Con N=4 eventos (BTC crash), casi seguro que NO lo es aunque el numero parezca grande
-- Sin validacion out-of-sample: nunca "entreno en 2018-2022, valido en 2022-2026"
-- Autocorrelacion en retornos forward: dias consecutivos en el mismo bin tienen retornos solapados
-
-**Confianza real de las senales actuales:**
+### Confianza de las senales implementadas (resumen honesto)
 - Rebalanceo anual: ALTA (N=9 independientes, efecto en Calmar consistente)
-- ETH MVRV < 0.8 como compra: MEDIA-ALTA (N=535 dias, pero in-sample)
+- ETH MVRV < 0.8 como compra: MEDIA-ALTA (N=535 dias, in-sample)
 - BTC crash >15% como compra: BAJA (N=4, insuficiente estadisticamente)
-- BTC $100k / ETH $3k como venta: DESCRIPTIVA, no predictiva (N=1, elegidos con hindsight)
-- Senales descartadas: descarte SI es fiable (efectos nulos/negativos son robustos)
-
-**Codigo a anadir en el proximo script para ser mas riguroso:**
-```python
-from scipy import stats
-import numpy as np
-
-def bootstrap_ci(returns, n_boot=10000, ci=0.95):
-    means = [np.mean(np.random.choice(returns, len(returns))) for _ in range(n_boot)]
-    lo = np.percentile(means, (1-ci)/2 * 100)
-    hi = np.percentile(means, (1+ci/2) * 100)
-    return lo, hi
-
-def test_signal(signal_returns, baseline_returns):
-    # Mann-Whitney U: retornos senal < baseline?
-    stat, p = stats.mannwhitneyu(signal_returns, baseline_returns, alternative='less')
-    return p  # p < 0.05 -> senal da retornos significativamente menores
-
-# Resultado honesto: "30d mean -5pp vs baseline, p=0.03, CI [-8%, -2%]"
-# En lugar de solo el numero sin contexto estadistico
-```
-
-**Metodologia target para exit_signals_research3.py:**
-- Bootstrap CI (95%) en cada bin de forward returns
-- Mann-Whitney U test para cada senal vs baseline
-- Separar periodo de exploracion (2018-2022) y validacion (2022-2026)
-- Nota explicita de multiple comparisons al resumir resultados
+- DCA-out sistematico: MEDIA (backtest in-sample, una sola instancia de ciclo alto)
+- Senales descartadas: descarte MUY FIABLE (efectos nulos/negativos robustos en todos los scripts)
 
 ## Sistema en produccion
 

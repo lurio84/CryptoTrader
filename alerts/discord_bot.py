@@ -24,17 +24,25 @@ def _format_embed(alert_type: str, severity: str, details: dict) -> dict:
 
     fields = []
     if details.get("btc_price") is not None:
-        fields.append({"name": "BTC Price", "value": "${:,.2f}".format(details["btc_price"]), "inline": True})
+        btc_eur = details.get("btc_price_eur")
+        btc_val = "${:,.0f}".format(details["btc_price"])
+        if btc_eur:
+            btc_val += " / {:,.0f} EUR".format(btc_eur)
+        fields.append({"name": "BTC Price", "value": btc_val, "inline": True})
     if details.get("btc_change") is not None:
         fields.append({"name": "BTC 24h", "value": "{:+.2f}%".format(details["btc_change"]), "inline": True})
     if details.get("eth_price") is not None:
-        fields.append({"name": "ETH Price", "value": "${:,.2f}".format(details["eth_price"]), "inline": True})
+        eth_eur = details.get("eth_price_eur")
+        eth_val = "${:,.0f}".format(details["eth_price"])
+        if eth_eur:
+            eth_val += " / {:,.0f} EUR".format(eth_eur)
+        fields.append({"name": "ETH Price", "value": eth_val, "inline": True})
     if details.get("funding_rate") is not None:
         fields.append({"name": "Funding Rate", "value": "{:.4f}%".format(details["funding_rate"] * 100), "inline": True})
     if details.get("mvrv") is not None:
         fields.append({"name": "ETH MVRV", "value": "{:.3f}".format(details["mvrv"]), "inline": True})
 
-    fields.append({"name": "Action", "value": details.get("recommendation", "Review positions"), "inline": False})
+    fields.append({"name": "Accion", "value": details.get("recommendation", "Review positions"), "inline": False})
 
     return {
         "embeds": [{
@@ -98,23 +106,33 @@ def send_discord_message(payload: dict) -> bool:
 # ---------------------------------------------------------------------------
 
 def _fetch_prices() -> dict:
-    """Fetch BTC and ETH prices from CoinGecko (no geo-restrictions)."""
+    """Fetch BTC and ETH prices (USD + EUR) from CoinGecko."""
     try:
         resp = requests.get(
             "https://api.coingecko.com/api/v3/simple/price",
-            params={"ids": "bitcoin,ethereum", "vs_currencies": "usd", "include_24hr_change": "true"},
+            params={
+                "ids": "bitcoin,ethereum",
+                "vs_currencies": "usd,eur",
+                "include_24hr_change": "true",
+            },
             timeout=10,
         )
         resp.raise_for_status()
         data = resp.json()
         return {
             "btc_price": data["bitcoin"]["usd"],
+            "btc_price_eur": data["bitcoin"]["eur"],
             "btc_change": data["bitcoin"]["usd_24h_change"],
             "eth_price": data["ethereum"]["usd"],
+            "eth_price_eur": data["ethereum"]["eur"],
         }
     except Exception as e:
         logger.error("Failed to fetch prices from CoinGecko: %s", e)
-        return {"btc_price": None, "btc_change": None, "eth_price": None}
+        return {
+            "btc_price": None, "btc_price_eur": None,
+            "btc_change": None,
+            "eth_price": None, "eth_price_eur": None,
+        }
 
 
 def _fetch_funding_rate() -> float | None:
@@ -233,7 +251,7 @@ def check_and_alert() -> list[dict]:
                 if not _already_alerted(session, alert_type, hours=24):
                     details = {
                         "btc_price": btc_price, "eth_price": eth_price, "mvrv": mvrv,
-                        "recommendation": "ETH deeply undervalued (89% win rate, +34% avg at 30d). Buy extra 100 EUR of ETH.",
+                        "recommendation": "ETH muy infravalorado (61% win rate, +10.1% avg a 30d, re-validado 2018-2026). Compra 100 EUR extra de ETH en Trade Republic.",
                     }
                     sent = send_discord_message(_format_embed("ETH MVRV Critical (< 0.8)", "red", details))
                     _log_alert(session, alert_type, "red", btc_price, eth_price, mvrv, sent)
@@ -243,41 +261,98 @@ def check_and_alert() -> list[dict]:
                 if not _already_alerted(session, alert_type, hours=24):
                     details = {
                         "btc_price": btc_price, "eth_price": eth_price, "mvrv": mvrv,
-                        "recommendation": "ETH undervalued territory. Consider increasing ETH Sparplan temporarily.",
+                        "recommendation": "ETH en zona infravalorada (54% win rate, +6.3% avg a 30d, re-validado 2018-2026). Considera aumentar el Sparplan de ETH temporalmente.",
                     }
                     sent = send_discord_message(_format_embed("ETH MVRV Low (< 1.0)", "yellow", details))
                     _log_alert(session, alert_type, "yellow", btc_price, eth_price, mvrv, sent)
                     triggered.append({"type": alert_type, "severity": "yellow", "sent": sent})
 
-        # Signal 4: BTC profit-taking level ($100k) -- validated by Analysis 2 (+68pp vs hold)
-        if btc_price is not None and btc_price >= 100_000:
-            alert_type = "btc_profit_level"
-            if not _already_alerted(session, alert_type, hours=720):  # 30 days
-                details = {
-                    "btc_price": btc_price, "btc_change": btc_change, "eth_price": eth_price,
-                    "recommendation": (
-                        "Research: selling 33% at $100k adds ~+68pp vs hold over the cycle. "
-                        "Consider 25-33% partial profit on BTC in Trade Republic."
-                    ),
-                }
-                sent = send_discord_message(_format_embed("BTC Profit-Taking Level ($100k)", "orange", details))
-                _log_alert(session, alert_type, "orange", btc_price, eth_price, btc_price, sent)
-                triggered.append({"type": alert_type, "severity": "orange", "sent": sent})
+        # Signals 4+: BTC DCA-out -- vender 3% cada $20k por encima de $80k
+        # Cada nivel tiene su propia deduplicacion de 30 dias (cooldown independiente).
+        # Backtest: +62pp a +115pp vs hold despues de impuestos IRPF (research4.py).
+        # Break-even: DCA-out gana si BTC termina el ciclo por debajo de ~$108k.
+        if btc_price is not None:
+            BTC_DCA_OUT_BASE  = 80_000   # primer nivel a partir del cual empezar
+            BTC_DCA_OUT_STEP  = 20_000   # escalon entre niveles
+            BTC_DCA_OUT_MAX   = 500_000  # limite superior (no se esperan alertas reales tan altas)
+            BTC_DCA_OUT_PCT   = 3        # % de holdings a vender por nivel
 
-        # Signal 5: ETH profit-taking level ($3k) -- validated by Analysis 4 (+69pp vs hold)
-        if eth_price is not None and eth_price >= 3_000:
-            alert_type = "eth_profit_level"
-            if not _already_alerted(session, alert_type, hours=720):  # 30 days
-                details = {
-                    "btc_price": btc_price, "eth_price": eth_price, "mvrv": mvrv,
-                    "recommendation": (
-                        "Research: selling 33% at $3k adds ~+69pp vs hold over the cycle. "
-                        "Consider 25-33% partial profit on ETH in Trade Republic."
-                    ),
-                }
-                sent = send_discord_message(_format_embed("ETH Profit-Taking Level ($3k)", "orange", details))
-                _log_alert(session, alert_type, "orange", btc_price, eth_price, eth_price, sent)
-                triggered.append({"type": alert_type, "severity": "orange", "sent": sent})
+            level = BTC_DCA_OUT_BASE
+            level_num = 1
+            while level <= BTC_DCA_OUT_MAX:
+                if btc_price >= level:
+                    alert_type = "btc_dca_out_{:d}k".format(level // 1000)
+                    if not _already_alerted(session, alert_type, hours=720):  # 30 dias
+                        details = {
+                            "btc_price": btc_price,
+                            "btc_price_eur": prices.get("btc_price_eur"),
+                            "btc_change": btc_change,
+                            "eth_price": eth_price,
+                            "recommendation": (
+                                "DCA-out nivel {:d} (${:,.0f}): vende el {}% de tus BTC en Trade Republic. "
+                                "Orden de mercado o limite a {:,.0f} EUR. "
+                                "Estrategia: -3% por cada ${}k subida. "
+                                "No vendas mas de este porcentaje -- el resto sigue en DCA.".format(
+                                    level_num,
+                                    level,
+                                    BTC_DCA_OUT_PCT,
+                                    prices.get("btc_price_eur") or 0,
+                                    BTC_DCA_OUT_STEP // 1000,
+                                )
+                            ),
+                        }
+                        sent = send_discord_message(
+                            _format_embed(
+                                "BTC DCA-out nivel {:d} (${:,.0f})".format(level_num, level),
+                                "orange",
+                                details,
+                            )
+                        )
+                        _log_alert(session, alert_type, "orange", btc_price, eth_price, float(level), sent)
+                        triggered.append({"type": alert_type, "severity": "orange", "sent": sent})
+                level += BTC_DCA_OUT_STEP
+                level_num += 1
+
+        # Signals 5+: ETH DCA-out -- vender 3% cada $1k por encima de $3k
+        if eth_price is not None:
+            ETH_DCA_OUT_BASE = 3_000
+            ETH_DCA_OUT_STEP = 1_000
+            ETH_DCA_OUT_MAX  = 50_000
+            ETH_DCA_OUT_PCT  = 3
+
+            level = ETH_DCA_OUT_BASE
+            level_num = 1
+            while level <= ETH_DCA_OUT_MAX:
+                if eth_price >= level:
+                    alert_type = "eth_dca_out_{:d}k".format(level // 1000)
+                    if not _already_alerted(session, alert_type, hours=720):  # 30 dias
+                        details = {
+                            "btc_price": btc_price,
+                            "eth_price": eth_price,
+                            "eth_price_eur": prices.get("eth_price_eur"),
+                            "mvrv": mvrv,
+                            "recommendation": (
+                                "DCA-out nivel {:d} (${:,.0f}): vende el {}% de tu ETH en Trade Republic. "
+                                "Precio aprox: {:,.0f} EUR. "
+                                "NOTA: confirma que el ETH stakeado se puede vender directamente en TR.".format(
+                                    level_num,
+                                    level,
+                                    ETH_DCA_OUT_PCT,
+                                    prices.get("eth_price_eur") or 0,
+                                )
+                            ),
+                        }
+                        sent = send_discord_message(
+                            _format_embed(
+                                "ETH DCA-out nivel {:d} (${:,.0f})".format(level_num, level),
+                                "orange",
+                                details,
+                            )
+                        )
+                        _log_alert(session, alert_type, "orange", btc_price, eth_price, float(level), sent)
+                        triggered.append({"type": alert_type, "severity": "orange", "sent": sent})
+                level += ETH_DCA_OUT_STEP
+                level_num += 1
 
     if not triggered:
         logger.info("No alerts triggered. All metrics within normal ranges.")

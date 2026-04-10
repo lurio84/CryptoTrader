@@ -237,15 +237,29 @@ def cmd_check(args: argparse.Namespace) -> None:
         print(f"          -> Consider increasing ETH Sparplan temporarily")
         has_alert = True
 
-    if btc_price is not None and btc_price >= 100_000:
-        print(f"    [ORANGE] BTC Profit Level: ${btc_price:,.0f} >= $100k")
-        print(f"          -> Research: 25-33% partial profit validated (+68pp vs hold, Analysis 2)")
-        has_alert = True
+    # BTC DCA-out levels
+    if btc_price is not None:
+        btc_dca_base, btc_dca_step = 80_000, 20_000
+        level = btc_dca_base
+        level_num = 1
+        while level <= 500_000:
+            if btc_price >= level:
+                print(f"    [ORANGE] BTC DCA-out nivel {level_num} (${level:,.0f}): vende el 3% de tus BTC en TR")
+                has_alert = True
+            level += btc_dca_step
+            level_num += 1
 
-    if eth_price is not None and eth_price >= 3_000:
-        print(f"    [ORANGE] ETH Profit Level: ${eth_price:,.0f} >= $3k")
-        print(f"          -> Research: 25-33% partial profit validated (+69pp vs hold, Analysis 4)")
-        has_alert = True
+    # ETH DCA-out levels
+    if eth_price is not None:
+        eth_dca_base, eth_dca_step = 3_000, 1_000
+        level = eth_dca_base
+        level_num = 1
+        while level <= 50_000:
+            if eth_price >= level:
+                print(f"    [ORANGE] ETH DCA-out nivel {level_num} (${level:,.0f}): vende el 3% de tu ETH en TR")
+                has_alert = True
+            level += eth_dca_step
+            level_num += 1
 
     if not has_alert:
         print(f"    [OK] No action needed. Sparplan running as usual.")
