@@ -102,6 +102,10 @@ def main() -> None:
     port_sub.add_parser("history", help="List all registered trades")
     port_sub.add_parser("export", help="Export all trades as CSV (for backup)")
 
+    p_tax = port_sub.add_parser("tax-report", help="Informe IRPF anual de ventas realizadas")
+    p_tax.add_argument("--year", type=int, default=None, help="Anno fiscal (default: anno en curso)")
+    p_tax.add_argument("--csv", action="store_true", help="Output en formato CSV")
+
     # digest
     p_digest = subparsers.add_parser("digest", help="Send weekly digest to Discord")
     p_digest.add_argument("--notify", action="store_true", help="Actually send to Discord (default: preview only)")

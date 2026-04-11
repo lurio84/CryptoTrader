@@ -175,6 +175,91 @@ def calculate_portfolio_status(
 
 
 # ---------------------------------------------------------------------------
+# Tax report (IRPF Spain)
+# ---------------------------------------------------------------------------
+
+def calculate_tax_report(all_trades: list[dict], year: int) -> dict:
+    """Generate the IRPF fiscal report for a given year.
+
+    Processes all trades chronologically to maintain correct FIFO state,
+    then extracts sells that occurred within 'year'.
+
+    Returns dict with:
+      - rows: list[dict] — one row per sell event in the year
+          keys: date, asset, units, sale_price_eur, cost_basis_eur,
+                proceeds_eur, gain_eur
+      - total_gain_eur: net realized gain for the year (losses offset gains)
+      - total_irpf_eur: estimated IRPF on total_gain_eur
+      - effective_rate_pct: effective tax rate
+      - bracket_breakdown: list[dict] with (limit_label, rate, tax_eur) per bracket
+    """
+    from collections import defaultdict
+
+    # Group trades by asset, sort globally by date for FIFO correctness
+    assets = defaultdict(list)
+    for t in sorted(all_trades, key=lambda x: x["date"]):
+        assets[t["asset"]].append(t)
+
+    rows: list[dict] = []
+
+    for asset, trades in assets.items():
+        fifo = FIFOQueue()
+        for t in trades:
+            if t["side"] == "buy":
+                fifo.buy(t["units"], t["price_eur"], t["fee_eur"])
+            elif t["side"] == "sell":
+                cost_basis, actual_sold = fifo.sell(t["units"])
+                proceeds = actual_sold * t["price_eur"] - t["fee_eur"]
+                gain = proceeds - cost_basis
+                trade_date = t["date"]
+                trade_year = trade_date.year if hasattr(trade_date, "year") else int(str(trade_date)[:4])
+                if trade_year == year:
+                    rows.append({
+                        "date": trade_date,
+                        "asset": asset,
+                        "units": actual_sold,
+                        "sale_price_eur": t["price_eur"],
+                        "cost_basis_eur": cost_basis,
+                        "proceeds_eur": proceeds,
+                        "gain_eur": gain,
+                    })
+
+    rows.sort(key=lambda r: r["date"])
+
+    total_gain = sum(r["gain_eur"] for r in rows)
+    total_irpf = compute_spanish_tax(max(total_gain, 0))
+    effective_rate = (total_irpf / total_gain * 100) if total_gain > 0 else 0.0
+
+    # Bracket breakdown (for display)
+    bracket_breakdown: list[dict] = []
+    if total_gain > 0:
+        prev = 0.0
+        bracket_labels = ["<=6.000 EUR", "6.001-50.000 EUR", "50.001-200.000 EUR", "200.001-300.000 EUR", ">300.000 EUR"]
+        for (limit, rate), label in zip(_SPAIN_TAX_BRACKETS, bracket_labels):
+            taxable = min(total_gain, limit) - prev
+            if taxable <= 0:
+                break
+            bracket_breakdown.append({
+                "label": label,
+                "rate_pct": rate * 100,
+                "taxable_eur": taxable,
+                "tax_eur": taxable * rate,
+            })
+            prev = limit
+            if total_gain <= limit:
+                break
+
+    return {
+        "year": year,
+        "rows": rows,
+        "total_gain_eur": total_gain,
+        "total_irpf_eur": total_irpf,
+        "effective_rate_pct": effective_rate,
+        "bracket_breakdown": bracket_breakdown,
+    }
+
+
+# ---------------------------------------------------------------------------
 # CSV export
 # ---------------------------------------------------------------------------
 

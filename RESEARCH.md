@@ -157,6 +157,43 @@ OOS 2021-2026 (N=4 para MVRV < 1.0, todos en 2022):
 **Conclusion: DESCARTADO. Alerta `btc_mvrv_critical` eliminada de produccion.**
 BTC MVRV sigue siendo informativo en el digest semanal (nivel actual), pero NO como senal de compra.
 
+## Research 8: BTC crash threshold sensitivity (2026-04)
+
+Script: `research/btc_crash_sensitivity.py`
+
+Hipotesis: el threshold de produccion -15% en 24h puede no ser optimo. N=4 eventos historicos es muy bajo para confiar en ese valor exacto.
+
+Datos: yfinance BTC-USD daily 2015-2026 (4,108 dias). Split: exploracion <2021 / validacion >=2021.
+Bootstrap 95% CI (N=10,000). Mann-Whitney U test.
+
+Resultados tabla completa (seleccion de filas relevantes):
+
+| Threshold | N  | WR 7d  | Ret 7d | Delta 7d | p-val 7d | Ret 30d | Delta 30d | OOS 7d | Verdict |
+|-----------|----|---------|---------|-----------|-----------|---------|-----------|---------|---------| 
+| -6%  | 162 | +55.6% | +1.8% | +0.4pp | 0.382 | +7.6%  | +1.1pp | +0.4%  | ORANGE |
+| -10% |  44 | +54.5% | +2.2% | +0.9pp | 0.415 | +8.8%  | +2.3pp | -0.7%  | ORANGE |
+| -11% |  28 | +60.7% | +3.7% | +2.3pp | 0.121 | +10.5% | +4.0pp | +0.0%  | ORANGE |
+| -13% |  18 | +72.2% | +4.6% | +3.2pp | 0.056 | +14.6% | +8.1pp | -1.3%  | ORANGE |
+| **-14%** | **13** | **+76.9%** | **+8.5%** | **+7.1pp** | **0.020** | **+17.1%** | **+10.6pp** | **+0.7%** | **RED** |
+| -15% |   9 | +66.7% | +9.5% | +8.1pp | 0.071 | +21.7% | +15.2pp | -8.4%  | DISCARD (OOS negativo) |
+| -16% |   5 | +80.0% | +13.3% | +12.0pp | 0.021 | +30.5% | +24.0pp | n/a   | ORANGE |
+
+El algoritmo de seleccion eligio -16% (delta mas alto con N>=5), pero ese threshold no tiene datos OOS.
+
+**Hallazgos clave:**
+- -14% es el UNICO threshold que pasa el filtro RED completo: p<0.05 en 7d Y 30d, N>=5 (N=13), OOS positivo (+0.7%)
+- -15% actual tiene OOS negativo (-8.4%) preocupante, pero N=4 eventos en OOS genera alta varianza
+- La diferencia -14% vs -15% es 1pp, dentro del ruido estadistico dado el bajo N
+- A umbrales mas extremos (>=-20%) N cae a 1-2: region no estadisticamente viable
+- El edge aumenta monotonamente con el threshold mas extremo, pero N cae igual de rapido
+
+**Conclusion: MANTENER -15% en produccion.**
+- -14% seria la alternativa con mejor soporte estadistico (el unico RED)
+- La diferencia de 1pp es negligible dado el N bajo; no justifica un cambio
+- Si en el proximo ciclo se producen 2-3 eventos nuevos, re-evaluar con mas datos
+
+Accion: BTC_CRASH_THRESHOLD = -15 SIN CAMBIOS.
+
 ## Investigacion pendiente (baja prioridad)
 
 - **Alerta S&P 500 crash**: validada (Research 6, -7% threshold). Evaluar implementacion (N=13, confianza baja).

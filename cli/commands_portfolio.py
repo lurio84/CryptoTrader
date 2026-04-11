@@ -13,7 +13,7 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
     from datetime import datetime as _dt
     from sqlalchemy import select as _select
     from data.models import UserTrade
-    from data.portfolio import calculate_portfolio_status, trades_to_csv
+    from data.portfolio import calculate_portfolio_status, trades_to_csv, calculate_tax_report
 
     sub = args.portfolio_cmd
 
@@ -79,6 +79,56 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
 
     if sub == "export":
         print(trades_to_csv(all_trades), end="")
+        return
+
+    if sub == "tax-report":
+        year = args.year or _dt.now().year
+        report = calculate_tax_report(all_trades, year)
+
+        if args.csv:
+            import io as _io
+            import csv as _csv
+            buf = _io.StringIO()
+            writer = _csv.writer(buf)
+            writer.writerow(["date", "asset", "units", "sale_price_eur", "cost_basis_eur", "proceeds_eur", "gain_eur"])
+            for r in report["rows"]:
+                d = r["date"]
+                writer.writerow([
+                    d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d),
+                    r["asset"],
+                    "{:.8f}".format(r["units"]),
+                    "{:.2f}".format(r["sale_price_eur"]),
+                    "{:.2f}".format(r["cost_basis_eur"]),
+                    "{:.2f}".format(r["proceeds_eur"]),
+                    "{:.2f}".format(r["gain_eur"]),
+                ])
+            print(buf.getvalue(), end="")
+            return
+
+        print(f"INFORME IRPF {year}")
+        print("=" * 72)
+        if not report["rows"]:
+            print(f"  No hay ventas registradas en {year}.")
+            return
+
+        print(f"  {'Fecha':<12} {'Activo':<16} {'Unidades':>12} {'Precio EUR':>11} {'Coste FIFO':>11} {'Ganancia':>11}")
+        print("  " + "-" * 70)
+        for r in report["rows"]:
+            d = r["date"]
+            date_str = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)
+            sign = "+" if r["gain_eur"] >= 0 else ""
+            print(f"  {date_str:<12} {r['asset']:<16} {r['units']:>12.6f} {r['sale_price_eur']:>10.2f}E {r['cost_basis_eur']:>10.2f}E {sign}{r['gain_eur']:>9.2f}E")
+        print("  " + "-" * 70)
+        total_sign = "+" if report["total_gain_eur"] >= 0 else ""
+        print(f"\n  TOTAL GANANCIA REALIZADA {year}: {total_sign}{report['total_gain_eur']:>10,.2f} EUR")
+        if report["total_gain_eur"] > 0:
+            print(f"  IRPF ESTIMADO (tramos ES):  {report['total_irpf_eur']:>10,.2f} EUR  (~{report['effective_rate_pct']:.1f}% efectivo)")
+            for b in report["bracket_breakdown"]:
+                print(f"    Tramo {b['label']}: {b['rate_pct']:.0f}% sobre {b['taxable_eur']:,.2f} EUR -> {b['tax_eur']:,.2f} EUR")
+        elif report["total_gain_eur"] < 0:
+            print(f"  Perdida neta: no hay IRPF. Compensable con ganancias futuras.")
+        else:
+            print(f"  Ganancia neta cero: sin IRPF.")
         return
 
     if sub == "history":

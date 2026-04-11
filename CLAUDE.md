@@ -66,6 +66,7 @@ python main.py portfolio add-buy  --asset BTC --units 0.001 --price-eur 45000 --
 python main.py portfolio add-buy  --asset SP500 --units 1.5 --price-eur 480 --source sparplan
 python main.py portfolio add-sell --asset BTC --units 0.0003 --price-eur 87000 --source dca_out
 python main.py portfolio show / history / export
+python main.py portfolio tax-report [--year 2024] [--csv]  # Informe IRPF anual
 
 # Monte Carlo jubilacion
 python main.py retirement-plan [--age 35 --retire-age 60 --target-eur 800000]
@@ -73,6 +74,7 @@ python main.py retirement-plan [--age 35 --retire-age 60 --target-eur 800000]
 # Research (scripts standalone, requieren internet)
 python research/sp500_crash_research.py
 python research/full_plan_simulation_2020.py
+python research/btc_crash_sensitivity.py   # Research 8: threshold sensitivity -5% a -30%
 
 python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 ```
