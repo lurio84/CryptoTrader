@@ -248,7 +248,7 @@ def check_and_alert() -> list[dict]:
         if mvrv is not None:
             if mvrv < 0.8:
                 alert_type = "mvrv_critical"
-                if not _already_alerted(session, alert_type, hours=24):
+                if not _already_alerted(session, alert_type, hours=168):  # 7 dias
                     details = {
                         "btc_price": btc_price, "eth_price": eth_price, "mvrv": mvrv,
                         "recommendation": "ETH muy infravalorado (61% win rate, +10.1% avg a 30d, re-validado 2018-2026). Compra 100 EUR extra de ETH en Trade Republic.",
@@ -258,7 +258,7 @@ def check_and_alert() -> list[dict]:
                     triggered.append({"type": alert_type, "severity": "red", "sent": sent})
             elif mvrv < 1.0:
                 alert_type = "mvrv_low"
-                if not _already_alerted(session, alert_type, hours=24):
+                if not _already_alerted(session, alert_type, hours=168):  # 7 dias
                     details = {
                         "btc_price": btc_price, "eth_price": eth_price, "mvrv": mvrv,
                         "recommendation": "ETH en zona infravalorada (54% win rate, +6.3% avg a 30d, re-validado 2018-2026). Considera aumentar el Sparplan de ETH temporalmente.",

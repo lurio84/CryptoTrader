@@ -175,6 +175,25 @@ Mejoras metodologicas: bootstrap CI 95%, Mann-Whitney U test, split exploracion/
 - CDD proxy (SplyCur changes, no CDD real): spike >= p90 da 30d=-0.8pp delta=-4.6pp (N=29)
 - CONCLUSION: Datos insuficientes o metrica proxy demasiado debil. CDD real requiere datos de pago.
 
+## Research 5: Simulacion plan completo 2020-2026 (2026-04)
+
+Script: `backtesting/full_plan_simulation_2020.py`
+Simula el plan real completo: BTC 8€/sem + ETH 2€/sem + crash buys + MVRV buys + DCA-out + staking ETH 4%.
+EUR/USD fijo 1.10 (media 2020-2026). Periodo: 2020-01-01 a 2026-04-01.
+
+### Resultado con cooldown MVRV correcto (7 dias)
+- Total invertido: 6.120 EUR | Portfolio final: 33.328 EUR | Retorno: +445% | CAGR: ~31%/ano
+- Desglose inversion: BTC Sparplan 2.616€ + ETH Sparplan 654€ + BTC crash 250€ (2 eventos) + ETH MVRV 2.600€ (26 eventos)
+- DCA-out generado: 6 ventas BTC (1.920 EUR cash) + 2 ventas ETH (10.099 EUR cash)
+- Solo Sparplan base (sin alertas): 3.270 EUR → 7.917 EUR (+142%)
+
+### Hallazgo critico: el cooldown de MVRV importa muchisimo
+- Cooldown 24h (antes): 128 eventos, 12.800 EUR comprometidos, portfolio 161k EUR (pero no planeado)
+- Cooldown 7d (actual): 26 eventos, 2.600 EUR comprometidos, portfolio 33k EUR (controlado y real)
+- El retorno masivo del cooldown 24h no refleja mejor senal sino MAS capital desplegado
+  a precios historicamente bajos (ETH a $130 en 2020 = 0.84 ETH por cada 100€)
+- Con cooldown 24h durante bear markets extendidos se necesitaban hasta 9.000 EUR liquidos disponibles
+
 ## Research 4: Validacion pre-implementacion DCA-out (2026-04)
 
 Script: `backtesting/exit_signals_research4.py`
@@ -224,6 +243,9 @@ Script: `backtesting/exit_signals_research4.py`
 - DCA-out sistematico ETH: ALERTA ACTIVA -- 3% cada $1k por encima de $3k, cooldown 30d
 - Precios en EUR incluidos en mensajes Discord (CoinGecko devuelve USD y EUR en misma llamada)
 - ETH staking en TR: pendiente verificar si venta de ETH stakeado es inmediata o requiere unstaking
+- Cooldown alertas MVRV cambiado de 24h a 7d (2026-04): con 24h el sistema comprometia 12.800 EUR
+  en 128 eventos durante 6 anos al dispararse diariamente en bear markets prolongados. Con 7d:
+  26 eventos / 2.600 EUR comprometidos -- alineado con la intencion de "2-5 compras extra/ano"
 
 ## Alertas activas en produccion (estado 2026-04)
 
@@ -231,8 +253,8 @@ Script: `backtesting/exit_signals_research4.py`
 |---|---|---|---|---|
 | btc_crash | BTC cae >15% en 24h | Compra 100-150 EUR BTC | red | 6h |
 | funding_negative | Funding rate < -0.01% | Compra 100 EUR BTC | orange | 24h |
-| mvrv_critical | ETH MVRV < 0.8 | Compra 100 EUR ETH | red | 24h |
-| mvrv_low | ETH MVRV 0.8-1.0 | Aumentar Sparplan ETH | yellow | 24h |
+| mvrv_critical | ETH MVRV < 0.8 | Compra 100 EUR ETH | red | 7d |
+| mvrv_low | ETH MVRV 0.8-1.0 | Aumentar Sparplan ETH | yellow | 7d |
 | btc_dca_out_Xk | BTC >= $80k, $100k, $120k... (+$20k) | Vender 3% BTC en TR | orange | 30d |
 | eth_dca_out_Xk | ETH >= $3k, $4k, $5k... (+$1k) | Vender 3% ETH en TR | orange | 30d |
 
