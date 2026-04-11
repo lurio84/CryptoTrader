@@ -182,12 +182,13 @@ def trades_to_csv(trades: list[dict]) -> str:
     """Serialize trade dicts to CSV string for backup."""
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["date", "asset", "side", "units", "price_eur", "fee_eur", "source", "notes"])
+    writer.writerow(["date", "asset", "asset_class", "side", "units", "price_eur", "fee_eur", "source", "notes"])
     for t in sorted(trades, key=lambda x: x["date"]):
         d = t["date"]
         writer.writerow([
             d.strftime("%Y-%m-%d") if isinstance(d, datetime) else str(d),
             t["asset"],
+            t.get("asset_class") or "crypto",
             t["side"],
             "{:.8f}".format(t["units"]),
             "{:.2f}".format(t["price_eur"]),

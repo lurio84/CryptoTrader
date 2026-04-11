@@ -167,7 +167,13 @@ class FIFOCostBasis:
 # Simulation
 # ---------------------------------------------------------------------------
 
-def simulate(apply_taxes: bool = False) -> dict:
+def simulate(apply_taxes: bool = False, eth_staking_apr: float = ETH_STAKING_APR) -> dict:
+    """Run full plan simulation.
+
+    Args:
+        apply_taxes: If True, apply Spain IRPF brackets to annual gains.
+        eth_staking_apr: Annualized ETH staking yield (default 0.04 = 4%).
+    """
     btc_prices = load_prices("btc")
     eth_prices = load_prices("eth")
     eth_mvrv   = load_eth_mvrv()
@@ -230,7 +236,7 @@ def simulate(apply_taxes: bool = False) -> dict:
         mvrv          = eth_mvrv[date]
 
         # -- ETH staking: acumula unidades diariamente --
-        daily_staking_rate = ETH_STAKING_APR / 365.0
+        daily_staking_rate = eth_staking_apr / 365.0
         eth_staking_units  = eth_units * daily_staking_rate
         if eth_staking_units > 0:
             eth_units += eth_staking_units
@@ -473,6 +479,18 @@ if __name__ == "__main__":
     print("\nSimulando plan completo crypto 2020-2026...")
     print(f"Configuracion: BTC {BTC_WEEKLY_EUR} EUR/sem + ETH {ETH_WEEKLY_EUR} EUR/sem")
     print(f"  + crash buys + MVRV buys + DCA-out + staking ETH {ETH_STAKING_APR*100:.0f}%")
+
+    # -- Sensibilidad ETH Staking APY (3% / 4% / 5%) --
+    print("\n" + "=" * 65)
+    print("  SENSIBILIDAD: ETH Staking APY")
+    print("=" * 65)
+    for apy in (0.03, 0.04, 0.05):
+        r_apy = simulate(apply_taxes=False, eth_staking_apr=apy)
+        mult = r_apy["total_portfolio_eur"] / r_apy["total_invested_eur"]
+        years_sim = (pd.Timestamp(END) - pd.Timestamp(START)).days / 365.25
+        cagr_apy = (r_apy["total_portfolio_eur"] / r_apy["total_invested_eur"]) ** (1 / years_sim) - 1
+        print(f"  APY {apy*100:.0f}%:  portfolio {r_apy['total_portfolio_eur']:>10,.0f} EUR  (x{mult:.2f}  CAGR {cagr_apy*100:.1f}%)")
+    print()
 
     r_bruto = simulate(apply_taxes=False)
     print_result(r_bruto)

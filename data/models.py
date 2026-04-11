@@ -129,7 +129,8 @@ class UserTrade(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     date = Column(DateTime, nullable=False)            # Date of the trade
-    asset = Column(String, nullable=False)             # "BTC" or "ETH"
+    asset = Column(String, nullable=False)             # "BTC", "ETH", "SP500", etc.
+    asset_class = Column(String, nullable=False, default="crypto")  # "crypto" | "etf"
     side = Column(String, nullable=False)              # "buy" or "sell"
     units = Column(Float, nullable=False)              # Units of crypto
     price_eur = Column(Float, nullable=False)          # Price in EUR at time of trade

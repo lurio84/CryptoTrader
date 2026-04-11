@@ -34,7 +34,7 @@ dev = [
 all = ["cryptotrader[dashboard,alerts,dev,research]"]
 
 [tool.setuptools.packages.find]
-include = ["config*", "data*", "strategies*", "backtesting*", "alerts*", "dashboard*"]
+include = ["config*", "data*", "strategies*", "backtesting*", "alerts*", "dashboard*", "analysis*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

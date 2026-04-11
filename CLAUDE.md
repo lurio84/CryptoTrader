@@ -307,20 +307,81 @@ Los numeros de research4 (IRPF) son los definitivos tras la correccion EUR/USD.
 - Nuevo comando: `python main.py digest [--notify]` (sin --notify: solo preview).
 - GitHub Actions: nuevo trigger cron `0 9 * * 0` (domingos 09:00 UTC), step condicional en workflow.
 
-### Portfolio tracker personal (FIFO + IRPF)
+### Portfolio tracker personal (FIFO + IRPF) -- expandido a 6 activos (2026-04)
+
 - Nueva tabla `UserTrade` en `data/models.py` (se crea automaticamente con init_db).
-  Campos: date, asset (BTC/ETH), side (buy/sell), units, price_eur, fee_eur, source, notes.
-- Logica FIFO y IRPF en `data/portfolio.py` (reutiliza bracktes de research4).
+  Campos: date, asset, asset_class (crypto|etf), side, units, price_eur, fee_eur, source, notes.
+- Columna `asset_class` anadida via migracion idempotente en `data/database.py:_migrate_user_trade()`.
+  Safe para DBs existentes: usa `PRAGMA table_info` antes de `ALTER TABLE`.
+- Activos soportados: BTC, ETH (crypto, FIFO+IRPF completo) y SP500, SEMICONDUCTORS,
+  REALTY_INCOME, URANIUM (etf, P&L simple con precios live via yfinance).
+- Precios ETF en EUR via `data/etf_prices.py` (yfinance, import lazy, SOLO LOCAL).
+  Tickers: SPY, SOXX, O, URA. NUNCA importar desde alerts/ ni CI.
+- `portfolio show` muestra 3 secciones: [CRYPTO] con FIFO+IRPF, [ETF] con P&L simple,
+  [TOTAL] con tabla de los 6 activos vs SPARPLAN_TARGETS y drift en pp.
+- Logica FIFO y IRPF en `data/portfolio.py` (solo para activos crypto).
 - Datos SOLO locales -- nunca en GitHub Actions ni en el repo publico.
-- Backup: `python main.py portfolio export > mis_trades.csv`.
+- Backup: `python main.py portfolio export > mis_trades.csv` (incluye columna asset_class).
 
 ```
 python main.py portfolio add-buy  --asset BTC --units 0.001 --price-eur 45000 --source sparplan [--date YYYY-MM-DD]
+python main.py portfolio add-buy  --asset SP500 --units 1.5 --price-eur 480 --source sparplan
 python main.py portfolio add-sell --asset BTC --units 0.0003 --price-eur 87000 --source dca_out
-python main.py portfolio show      # P&L FIFO, ganancia no realizada, IRPF estimado, proximo DCA-out
-python main.py portfolio history   # Lista todas las operaciones registradas
-python main.py portfolio export    # CSV por stdout (para backup manual)
+python main.py portfolio show      # 3 secciones: Crypto, ETF, Total con allocation table
+python main.py portfolio history   # Lista todas las operaciones (crypto + ETF)
+python main.py portfolio export    # CSV backup (redirigir a archivo)
 ```
+
+### Rebalanceo anual -- expandido a 6 activos (2026-04)
+
+- `cmd_rebalance()` acepta ahora los 6 activos por separado.
+- BTC y ETH en UNIDADES (precio live de CoinGecko). ETFs en EUR directamente.
+- Calcula drift de cada activo vs SPARPLAN_TARGETS. Threshold: 10pp.
+- Research: rebalanceo anual mejora CAGR de 12.5% a 14.7% (datos 2018-2026).
+
+```
+python main.py rebalance --btc 0.05 --eth 0.5 --sp500 5000 --semis 1200 --realty 1200 --uranium 300
+```
+
+Constante global `SPARPLAN_TARGETS` en `main.py` (deriva de SPARPLAN_MONTHLY):
+- BTC: 22.86%, ETH: 5.71%, SP500: 45.71%, SEMICONDUCTORS: 11.43%, REALTY_INCOME: 11.43%, URANIUM: 2.86%
+
+### Monte Carlo retirement projection (nuevo, 2026-04)
+
+- Nuevo modulo `analysis/monte_carlo.py`.
+- Metodo: bootstrap resampling de retornos mensuales historicos (mismo patron que research3).
+  Retorno mensual ponderado = suma(weight_i * R_i(t)) para preservar correlaciones.
+  Vectorizado: (n_simulations, T) arrays, sin loop Python.
+- Datos: yfinance para todos los activos (BTC-USD, ETH-USD, SPY, SOXX, O, URA).
+  Inner join limita historia a ~2017-presente (ETH bottleneck).
+  Cache en `data/research_cache/mc_XXX_monthly.csv`.
+- Output: MonteCarloResult con p10/p25/p50/p75/p90 por ano + prob_reach_target.
+- Nuevo comando `retirement-plan`:
+
+```
+python main.py retirement-plan                    # defaults: age=30, retire=65, target=1M EUR, monthly=140
+python main.py retirement-plan --age 35 --retire-age 60 --target-eur 800000 --simulations 10000
+```
+
+### S&P 500 crash research (nuevo, 2026-04)
+
+- Script standalone `backtesting/sp500_crash_research.py`.
+- Datos: yfinance ^GSPC semanal 2000-2026. Cache en `data/research_cache/gspc_weekly.csv`.
+- Thresholds testados: -5%, -7%, -10%, -15% weekly return.
+- Horizontes forward: 1w, 4w, 13w, 26w, 52w.
+- Estadistica: bootstrap CI 95% + Mann-Whitney U. Split: 2000-2012 / 2012-2026.
+- Bonus: senal compuesta S&P crash + BTC crash.
+- Conclusion automatica: RECOMENDADO o NO IMPLEMENTAR segun p-values y consistencia.
+
+```
+python backtesting/sp500_crash_research.py
+```
+
+### ETH Staking APY sensitivity (nuevo, 2026-04)
+
+- `backtesting/full_plan_simulation_2020.py:simulate()` acepta ahora `eth_staking_apr` (default 0.04).
+- Al ejecutar `python backtesting/full_plan_simulation_2020.py`, primero muestra tabla de
+  sensibilidad 3%/4%/5% APY (portfolio EUR + multiplicador + CAGR) antes de los escenarios habituales.
 
 ## Investigacion pendiente (proxima sesion)
 
@@ -331,6 +392,12 @@ python main.py portfolio export    # CSV por stdout (para backup manual)
   Si se consigue acceso a datos historicos, podria ser senal de venta relevante.
 - **Portfolio import CSV**: actualmente solo se pueden anadir trades manualmente uno a uno.
   Podria anadirse un comando `portfolio import mi_trades.csv` para restaurar desde backup.
+- **Tickers ETF ajustados a TR**: los tickers actuales (SPY, SOXX, O, URA) son proxies USD.
+  TR usa ETFs UCITS europeos (ej. SXR8.DE para S&P 500). Los precios son equivalentes pero
+  si se quiere precio exacto en EUR de la posicion en TR, ajustar ETF_TICKERS en data/etf_prices.py.
+- **Verificar ETH stakeado en TR**: pendiente confirmar si venta de ETH stakeado es inmediata.
+- **Monte Carlo con inflacion ajustada**: actualmente sin ajuste por inflacion. Anadir flag
+  `--inflation 0.025` para deflactar proyecciones a EUR reales de hoy.
 
 ### Confianza de las senales implementadas (resumen honesto)
 - Rebalanceo anual: ALTA (N=9 independientes, efecto en Calmar consistente)
@@ -363,14 +430,27 @@ python main.py check --notify         # Check + enviar Discord si hay alerta
 python main.py digest                 # Preview del digest semanal
 python main.py digest --notify        # Enviar digest semanal a Discord (cooldown 6d)
 python main.py dashboard              # Dashboard web localhost:8000
-python main.py rebalance --btc X --eth X --other X  # Rebalanceo anual (X = valor en EUR)
+
+# Rebalanceo anual -- 6 activos (BTC/ETH en unidades, ETFs en EUR)
+python main.py rebalance --btc 0.05 --eth 0.5 --sp500 5000 --semis 1200 --realty 1200 --uranium 300
 
 # Portfolio tracker (datos solo locales, nunca en CI)
 python main.py portfolio add-buy  --asset BTC --units 0.001 --price-eur 45000 --source sparplan
+python main.py portfolio add-buy  --asset SP500 --units 1.5 --price-eur 480 --source sparplan
 python main.py portfolio add-sell --asset BTC --units 0.0003 --price-eur 87000 --source dca_out
-python main.py portfolio show         # P&L FIFO + IRPF estimado + proximo DCA-out
-python main.py portfolio history      # Lista de operaciones
+python main.py portfolio show         # P&L FIFO crypto + P&L ETF + tabla allocation 6 activos
+python main.py portfolio history      # Lista de operaciones (crypto + ETF)
 python main.py portfolio export       # CSV backup (redirigir a archivo)
+
+# Proyeccion jubilacion Monte Carlo (requiere internet para yfinance)
+python main.py retirement-plan                          # defaults: 30->65, 1M EUR, 140 EUR/mes
+python main.py retirement-plan --age 35 --retire-age 60 --target-eur 800000
+
+# Research S&P 500 crashes (script standalone, requiere internet)
+python backtesting/sp500_crash_research.py
+
+# Simulacion plan completo (con tabla sensibilidad staking 3/4/5%)
+python backtesting/full_plan_simulation_2020.py
 
 python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 python main.py sentiment --since 2020-01-01
@@ -382,6 +462,8 @@ python main.py sentiment --since 2020-01-01
 - Funding rate BTC: OKX API (Binance y Bybit bloquean IPs de GitHub)
 - ETH MVRV + BTC MVRV: CoinMetrics community API (assets=eth o assets=btc, mismo endpoint)
 - Fear & Greed: alternative.me API
+- Precios ETF (LOCAL): yfinance (SPY, SOXX, O, URA + EURUSD=X para conversion EUR)
+  SOLO en comandos portfolio/rebalance/retirement-plan. NUNCA en alerts/ ni CI.
 
 ## Convenciones
 
@@ -391,3 +473,19 @@ python main.py sentiment --since 2020-01-01
 - Objetos SQLAlchemy se expiran al cerrar sesion (expire_on_commit=True por defecto).
   Convertir a dicts dentro del `with get_session()` antes de usar fuera del bloque.
   Ver pattern en `cmd_portfolio` de main.py (`_row_to_dict`).
+- Migraciones de DB: usar `PRAGMA table_info` + `ALTER TABLE` en `init_db()`. Ver
+  `data/database.py:_migrate_user_trade()` como patron de referencia (idempotente).
+- yfinance es dependencia SOLO LOCAL (opcional `[all]`). Import lazy (dentro de funciones)
+  para que los modulos funcionen sin yfinance en CI. NUNCA en alerts/ ni monitor.
+
+## Estructura de archivos nuevos (2026-04)
+
+```
+analysis/
+  __init__.py
+  monte_carlo.py          -- Bootstrap MC retirement projection (yfinance)
+data/
+  etf_prices.py           -- Precios ETF en EUR via yfinance (local-only)
+backtesting/
+  sp500_crash_research.py -- Research crashes S&P 500 (standalone script)
+```
