@@ -99,6 +99,18 @@ class BacktestEngine:
 
         equity_curve = pd.Series(equity_values, index=df.index)
 
+        # Detect data frequency to annualize Sharpe correctly
+        if len(df) >= 2:
+            median_gap_h = df["timestamp"].diff().dropna().median().total_seconds() / 3600
+            if median_gap_h <= 2:
+                periods_per_year = 8760    # hourly
+            elif median_gap_h <= 26:
+                periods_per_year = 365     # daily
+            else:
+                periods_per_year = 52      # weekly
+        else:
+            periods_per_year = 8760
+
         metrics = calculate_metrics(
             trades=trades,
             equity_curve=equity_curve,
@@ -107,6 +119,7 @@ class BacktestEngine:
             last_price=df["close"].iloc[-1],
             start_date=str(df["timestamp"].iloc[0].date()),
             end_date=str(df["timestamp"].iloc[-1].date()),
+            periods_per_year=periods_per_year,
         )
 
         return BacktestResult(

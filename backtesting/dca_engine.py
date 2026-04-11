@@ -185,14 +185,15 @@ class DCABacktestEngine:
 
         # Final values
         last_price = merged["close"].iloc[-1]
-        smart_final = smart_position * last_price
-        fixed_final = fixed_position * last_price
+        exit_price = last_price * (1 - self.slippage)
+        smart_final = smart_position * exit_price
+        fixed_final = fixed_position * exit_price
 
         # Buy & Hold: invest same total as fixed DCA at start
         bh_invested = fixed_invested
         first_price = merged["close"].iloc[0]
         bh_position = bh_invested / (first_price * (1 + self.slippage))
-        bh_final = bh_position * last_price
+        bh_final = bh_position * exit_price
 
         # Returns
         smart_return = ((smart_final - smart_invested) / smart_invested * 100) if smart_invested > 0 else 0

@@ -200,11 +200,13 @@ Script: `backtesting/exit_signals_research4.py`
 
 ### Parte 1: Impacto fiscal IRPF espana
 - Modelo: FIFO cost basis, brackets 2024 (19%/21%/23%/27%/28%)
-- Hold puro paga 2.350 EUR impuestos en venta final (20.0% efectivo de 11.760 EUR ganancia)
-- DCA-out "3% per $10k above $80k": paga 3.266 EUR en impuestos (distribuidos 2024-2026)
-  pero aun asi gana +115pp vs hold despues de impuestos
-- Tax drag del DCA-out vs no-tax: -95pp (paga impuestos antes y en mayor cantidad)
-- Tax drag del hold vs no-tax: -68pp
+- Nota metodologica: ganancias calculadas en USD convertidas a EUR con factor EUR/USD=1.10
+  (promedio 2018-2026). Sin conversion, el impuesto se sobreestima ~10%.
+- Hold puro paga 2.125 EUR impuestos en venta final (18.1% efectivo de 11.759 EUR ganancia)
+- DCA-out "3% per $10k above $80k": paga 2.959 EUR en impuestos (distribuidos 2024-2026)
+  pero aun asi gana +117pp vs hold despues de impuestos (+396.9% vs +279.4%)
+- Tax drag del DCA-out vs no-tax: -85.8pp (paga impuestos antes y en mayor cantidad)
+- Tax drag del hold vs no-tax: -61.7pp
 - CONCLUSION: impuestos favorecen al hold en terminos de timing y cantidad, pero el
   DCA-out captura suficiente ganancia extra para compensar con margen amplio.
 
@@ -259,6 +261,22 @@ Script: `backtesting/exit_signals_research4.py`
 | eth_dca_out_Xk | ETH >= $3k, $4k, $5k... (+$1k) | Vender 3% ETH en TR | orange | 30d |
 
 Nota: los mensajes Discord incluyen precio en EUR (CoinGecko devuelve usd+eur en misma llamada).
+
+## Auditoria de codigo realizada (2026-04)
+
+Se auditaron todos los scripts de backtesting y alertas. Bugs corregidos:
+
+| Bug | Archivo | Impacto en numeros publicados |
+|---|---|---|
+| Sharpe ratio usaba sqrt(8760) siempre (hourly) | `backtesting/metrics.py` + `engine.py` | Ninguno (solo afecta estrategias tecnicas descartadas) |
+| Cooldown de crash-buy comparaba indice entero con horas | `backtesting/crash_dca_engine.py` | Ninguno (crypto data es continua, sin gaps) |
+| Valor final de portfolio sin exit slippage | `backtesting/dca_engine.py` + `crash_dca_engine.py` | Ninguno (simetrico en todas las estrategias) |
+| Ganancias en USD aplicadas directamente a tramos IRPF en EUR | `backtesting/exit_signals_research4.py` | **SI**: taxes 2.350→2.125 EUR (hold), 3.266→2.959 EUR (DCA-out). Ventaja DCA-out 115→117pp |
+| BTC comprado y vendido el mismo dia en simulacion DCA-out | `research3.py` + `research4.py` | < 7 EUR sobre miles, negligible |
+| Liquidacion final sin comision 1 EUR de TR | `backtesting/exit_signals_research4.py` | 1 EUR, negligible |
+
+Todos los 41 tests siguen pasando. Las conclusiones estrategicas no cambian.
+Los numeros de research4 (IRPF) son los definitivos tras la correccion EUR/USD.
 
 ## Investigacion pendiente (proxima sesion)
 

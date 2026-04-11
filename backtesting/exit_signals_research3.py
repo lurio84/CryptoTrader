@@ -622,20 +622,23 @@ def analysis_2_dca_out(btc_df: pd.DataFrame) -> dict:
         for date in prices_a.index:
             price = prices_a[date]
 
+            # Snapshot pre-buy to avoid selling freshly bought BTC the same day
+            btc_before_buy = btc_units
+
             # Weekly DCA
             if date in weekly_dates:
                 btc_units += WEEKLY_BTC_EUR / price
                 invested += WEEKLY_BTC_EUR
 
             # DCA-out: check each step level
-            if base_price > 0 and step_size > 0 and price > base_price and btc_units > 0:
+            if base_price > 0 and step_size > 0 and price > base_price and btc_before_buy > 0:
                 # How many steps above base?
                 steps_above = int((price - base_price) / step_size)
                 for step in range(1, steps_above + 1):
                     level_price = base_price + step * step_size
                     last = last_trigger_by_level.get(step)
                     if last is None or (date - last).days >= cooldown:
-                        sell_units = btc_units * sell_pct
+                        sell_units = btc_before_buy * sell_pct
                         sell_val = sell_units * price
                         net = sell_val - SELL_FEE_EUR
                         if net > 0:

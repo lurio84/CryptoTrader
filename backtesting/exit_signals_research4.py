@@ -45,6 +45,13 @@ ANALYSIS_END   = "2026-04-01"
 WEEKLY_BTC_EUR = 8.0
 SELL_FEE_EUR   = 1.0
 
+# EUR/USD conversion for IRPF tax calculation.
+# BTC prices from CoinMetrics are in USD. Spain IRPF brackets are in EUR.
+# EUR/USD averaged ~1.10 over 2018-2026 (range 0.96-1.22, avg ~1.10).
+# Without this factor, gain_eur is overstated ~10%, causing taxes to be
+# overstated ~10%. Effect: DCA-out results are conservative (understated advantage).
+EUR_USD_AVG = 1.10
+
 CACHE_DIR = Path(__file__).parent.parent / "data" / "research_cache"
 
 # Spain IRPF 2024 -- capital gains brackets (annual net gain)
@@ -241,29 +248,31 @@ def part1_tax_analysis(prices_a: pd.Series) -> dict:
         for date in prices_a.index:
             price = prices_a[date]
 
+            # Snapshot pre-buy to avoid selling freshly bought BTC the same day
+            units_before_buy = fifo.total_units
+
             # Weekly DCA: buy BTC
             if date in weekly_dates:
                 units_bought = WEEKLY_BTC_EUR / price
                 fifo.buy(units_bought, price)  # cost basis = price in USD
                 invested += WEEKLY_BTC_EUR
-                # Note: we store cost in USD (same unit as sell price)
-                # EUR/USD would add complexity; we simplify by ignoring FX
 
             # DCA-out sell triggers (not for pure hold)
             if not is_hold and base_price > 0 and step_size > 0:
-                if price > base_price and fifo.total_units > 0:
+                if price > base_price and units_before_buy > 0:
                     steps_above = int((price - base_price) / step_size)
                     for step in range(1, steps_above + 1):
                         last = last_trigger_by_level.get(step)
                         if last is None or (date - last).days >= cooldown:
-                            sell_units = fifo.total_units * sell_pct
+                            sell_units = units_before_buy * sell_pct
                             cost_basis_usd = fifo.sell(sell_units)
                             sell_proceeds_usd = sell_units * price
                             gain_usd = sell_proceeds_usd - cost_basis_usd
 
-                            # Approximate EUR (simplification: assume 1 USD ~ 1 EUR
-                            # for gain calculation -- direction/magnitude is correct)
-                            gain_eur = gain_usd
+                            # Convert USD gain to EUR for IRPF brackets (Bug 3 fix).
+                            # EUR/USD avg ~1.10 over 2018-2026. Without conversion,
+                            # gain_eur is overstated ~10% -> taxes are overstated.
+                            gain_eur = gain_usd / EUR_USD_AVG
                             sell_eur = sell_proceeds_usd - SELL_FEE_EUR
 
                             if sell_eur > 0:
@@ -295,9 +304,9 @@ def part1_tax_analysis(prices_a: pd.Series) -> dict:
             final_cost_basis = fifo.sell(remaining_units)
             final_proceeds_usd = remaining_units * final_price
             final_gain_usd = final_proceeds_usd - final_cost_basis
-            final_gain_eur = final_gain_usd
+            final_gain_eur = final_gain_usd / EUR_USD_AVG
             final_tax = compute_spanish_tax(final_gain_eur)
-            final_net = final_proceeds_usd - final_tax
+            final_net = final_proceeds_usd - final_tax - SELL_FEE_EUR
             total_tax_paid += final_tax
             cash_eur += final_net
 
@@ -330,15 +339,16 @@ def part1_tax_analysis(prices_a: pd.Series) -> dict:
 
         for date in prices_a.index:
             price = prices_a[date]
+            btc_before_buy = btc_units
             if date in weekly_dates:
                 btc_units += WEEKLY_BTC_EUR / price
                 invested += WEEKLY_BTC_EUR
-            if base_price > 0 and step_size > 0 and price > base_price and btc_units > 0:
+            if base_price > 0 and step_size > 0 and price > base_price and btc_before_buy > 0:
                 steps_above = int((price - base_price) / step_size)
                 for step in range(1, steps_above + 1):
                     last = last_trigger_by_level.get(step)
                     if last is None or (date - last).days >= cooldown:
-                        sell_units = btc_units * sell_pct
+                        sell_units = btc_before_buy * sell_pct
                         sell_eur = sell_units * price - SELL_FEE_EUR
                         if sell_eur > 0:
                             btc_units -= sell_units

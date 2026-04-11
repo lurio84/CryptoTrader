@@ -134,22 +134,24 @@ class CrashDCAEngine:
 
         # Identify crash events on hourly data, then map to daily
         crash_events = []
-        last_crash_idx = -999
+        last_crash_ts = None
         for i, row in df.iterrows():
-            if i - last_crash_idx < self.s.crash_cooldown_hours:
-                continue
             ret = row["ret_24h"]
             if pd.isna(ret):
                 continue
+            if last_crash_ts is not None:
+                elapsed_h = (row["timestamp"] - last_crash_ts).total_seconds() / 3600
+                if elapsed_h < self.s.crash_cooldown_hours:
+                    continue
             if ret <= self.s.crash_threshold_3:
                 crash_events.append((row["timestamp"], self.s.crash_multiplier_3, ret))
-                last_crash_idx = i
+                last_crash_ts = row["timestamp"]
             elif ret <= self.s.crash_threshold_2:
                 crash_events.append((row["timestamp"], self.s.crash_multiplier_2, ret))
-                last_crash_idx = i
+                last_crash_ts = row["timestamp"]
             elif ret <= self.s.crash_threshold_1:
                 crash_events.append((row["timestamp"], self.s.crash_multiplier_1, ret))
-                last_crash_idx = i
+                last_crash_ts = row["timestamp"]
 
         # Map crash events to dates
         crash_dates = {}
@@ -221,14 +223,15 @@ class CrashDCAEngine:
 
         # Final values
         last_price = daily["close"].iloc[-1]
-        final_value = position * last_price
-        fixed_final = fixed_position * last_price
+        exit_price = last_price * (1 - self.slippage)
+        final_value = position * exit_price
+        fixed_final = fixed_position * exit_price
 
         # Buy & Hold
         bh_invested = fixed_invested
         first_price = daily["close"].iloc[0]
         bh_coins, _ = self._execute_buy(bh_invested, first_price)
-        bh_final = bh_coins * last_price
+        bh_final = bh_coins * exit_price
 
         # Returns
         ret = ((final_value - invested) / invested * 100) if invested > 0 else 0

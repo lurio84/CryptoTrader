@@ -52,6 +52,7 @@ def calculate_metrics(
     last_price: float,
     start_date: str,
     end_date: str,
+    periods_per_year: float = 8760,
 ) -> BacktestMetrics:
     """Calculate backtest performance metrics from trade list and equity curve."""
 
@@ -59,10 +60,10 @@ def calculate_metrics(
     buy_and_hold_return_pct = ((last_price - first_price) / first_price) * 100
     excess_return_pct = total_return_pct - buy_and_hold_return_pct
 
-    # Sharpe ratio (annualized, assuming hourly data)
+    # Sharpe ratio (annualized). periods_per_year: 8760=hourly, 365=daily, 52=weekly
     returns = equity_curve.pct_change().dropna()
     if len(returns) > 1 and returns.std() > 0:
-        sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(8760)  # hours in a year
+        sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(periods_per_year)
     else:
         sharpe_ratio = 0.0
 
