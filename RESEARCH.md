@@ -194,6 +194,39 @@ El algoritmo de seleccion eligio -16% (delta mas alto con N>=5), pero ese thresh
 
 Accion: BTC_CRASH_THRESHOLD = -15 SIN CAMBIOS.
 
+## Research 9: BTC NUPL como senal de venta (2026-04)
+
+Script: `research/research_nupl.py`
+
+Hipotesis: NUPL (Net Unrealized Profit/Loss) = 1 - 1/MVRV mide que fraccion del market cap de BTC
+representa ganancia no realizada. Willy Woo define NUPL > 0.75 como zona de "Euforia/Greed" y
+techo de ciclo. Testeado como senal de venta/reduccion de DCA-out.
+
+Nota: NUPL se deriva del MVRV ya cacheado (btc_mvrv_daily.csv). Sin API adicional.
+
+Datos: CoinMetrics BTC CapMVRVCur + PriceUSD, 2010-2026. Split IS: 2011-2022 / OOS: 2022-2026.
+
+| Threshold | N (IS) | 30d media | Delta vs baseline | p-val | WR | N (OOS) |
+|-----------|--------|-----------|-------------------|-------|----|---------|
+| NUPL > 0.75 | 9 | +108.4% | **+91.9pp** | 0.018* | 78% | 0 |
+| NUPL > 0.60 | 20 | +41.8% | **+33.2pp** | 0.416 | 60% | 4 |
+| NUPL < 0.00 | 9 | +1.0% | **-19.5pp** | 0.396 | 44% | 4 (OOS WR=0%) |
+| NUPL < 0.25 | 17 | +11.9% | **-11.7pp** | 0.520 | 71% (IS) / 20% (OOS) | 6 |
+
+**Hallazgo principal: NUPL alto es senal de MOMENTUM, no de techo.**
+- NUPL > 0.75: p=0.018, +108% a 30d. Cuando el mercado esta en maxima euforia, BTC sigue subiendo.
+- Mismo patron que MVRV alto, RSI > 85 semanal, Fear & Greed extremo: todos predicen continuacion.
+- La narrativa de Willy Woo ("NUPL > 0.75 = vender") no se sostiene estadisticamente.
+- 0 eventos OOS (2022-2026): BTC no ha alcanzado NUPL > 0.75 en este ciclo.
+
+**NUPL bajo confirma btc_mvrv_research:** NUPL < 0.0 = MVRV < 1.0. OOS WR=0%, consistente con research7.
+
+**Conclusion: DESCARTADO en ambas direcciones.**
+- Como senal de VENTA: NUPL alto predice retornos mayores. Usar es perder upside.
+- Como senal de COMPRA: mismo resultado que MVRV < 1.0, ya descartado.
+- Los niveles de precio del DCA-out ($80k, $100k...) siguen siendo el enfoque correcto.
+- Los analiticos on-chain de valoracion NO sirven como senales de salida en BTC.
+
 ## Investigacion pendiente (baja prioridad)
 
 - **Alerta S&P 500 crash**: validada (Research 6, -7% threshold). Evaluar implementacion (N=13, confianza baja).
