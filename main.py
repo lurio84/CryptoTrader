@@ -3,7 +3,6 @@
 import argparse
 import sys
 
-from cli.constants import SPARPLAN_TARGETS, SPARPLAN_MONTHLY
 from cli.commands_ops import cmd_check, cmd_digest, cmd_dashboard, cmd_monitor
 from cli.commands_portfolio import cmd_portfolio
 from cli.commands_analysis import cmd_rebalance, cmd_retirement_plan
