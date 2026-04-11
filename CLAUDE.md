@@ -303,6 +303,7 @@ Se auditaron todos los scripts de backtesting y alertas. Bugs corregidos:
 | Ganancias en USD aplicadas directamente a tramos IRPF en EUR | `research/exit_signals_research4.py` | **SI**: taxes 2.350→2.125 EUR (hold), 3.266→2.959 EUR (DCA-out). Ventaja DCA-out 115→117pp |
 | BTC comprado y vendido el mismo dia en simulacion DCA-out | `research3.py` + `research4.py` | < 7 EUR sobre miles, negligible |
 | Liquidacion final sin comision 1 EUR de TR | `research/exit_signals_research4.py` | 1 EUR, negligible |
+| DetachedInstanceError en send_weekly_digest(): AlertLog leido fuera de sesion SQLAlchemy | `alerts/discord_bot.py` | Ninguno (bug de produccion, CI fallaba en digest --notify) |
 
 Todos los 41 tests siguen pasando. Las conclusiones estrategicas no cambian.
 Los numeros de research4 (IRPF) son los definitivos tras la correccion EUR/USD.

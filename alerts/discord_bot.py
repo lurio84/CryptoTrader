@@ -358,12 +358,16 @@ def send_weekly_digest() -> bool:
     # Alerts from last 7 days
     week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).replace(tzinfo=None)
     with get_session() as session:
-        recent_alerts = session.execute(
+        rows = session.execute(
             select(AlertLog)
             .where(AlertLog.timestamp >= week_ago)
             .where(AlertLog.alert_type != "weekly_digest")
             .order_by(AlertLog.timestamp.desc())
         ).scalars().all()
+        recent_alerts = [
+            {"timestamp": a.timestamp, "alert_type": a.alert_type, "severity": a.severity}
+            for a in rows
+        ]
 
     fields = []
 
@@ -422,8 +426,8 @@ def send_weekly_digest() -> bool:
     if recent_alerts:
         alert_lines = []
         for a in recent_alerts[:8]:  # max 8 para no exceder limite Discord
-            ts = a.timestamp.strftime("%d/%m %H:%M") if a.timestamp else "?"
-            alert_lines.append("{} `{}` {}".format(ts, a.alert_type, a.severity.upper()))
+            ts = a["timestamp"].strftime("%d/%m %H:%M") if a["timestamp"] else "?"
+            alert_lines.append("{} `{}` {}".format(ts, a["alert_type"], a["severity"].upper()))
         alerts_text = "\n".join(alert_lines)
     else:
         alerts_text = "Semana sin señales -- Sparplan corriendo con normalidad."
