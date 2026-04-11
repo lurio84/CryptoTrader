@@ -15,12 +15,12 @@ def _make_ohlcv_raw(n: int = 5, start_ts: int = 1704067200000) -> list:
     return data
 
 
-@patch("data.collector.ccxt")
-def test_fetch_ohlcv(mock_ccxt):
+@patch("ccxt.binance")
+def test_fetch_ohlcv(mock_binance_class):
     """Test fetching OHLCV data returns correct DataFrame."""
     mock_exchange = MagicMock()
     mock_exchange.fetch_ohlcv.return_value = _make_ohlcv_raw(5)
-    mock_ccxt.binance.return_value = mock_exchange
+    mock_binance_class.return_value = mock_exchange
 
     collector = DataCollector("binance")
     df = collector.fetch_ohlcv("BTC/USDT", "1h")
@@ -31,12 +31,12 @@ def test_fetch_ohlcv(mock_ccxt):
     assert df["timeframe"].iloc[0] == "1h"
 
 
-@patch("data.collector.ccxt")
-def test_fetch_ohlcv_empty(mock_ccxt):
+@patch("ccxt.binance")
+def test_fetch_ohlcv_empty(mock_binance_class):
     """Test fetching with no data returns empty DataFrame."""
     mock_exchange = MagicMock()
     mock_exchange.fetch_ohlcv.return_value = []
-    mock_ccxt.binance.return_value = mock_exchange
+    mock_binance_class.return_value = mock_exchange
 
     collector = DataCollector("binance")
     df = collector.fetch_ohlcv("BTC/USDT", "1h")
@@ -44,8 +44,8 @@ def test_fetch_ohlcv_empty(mock_ccxt):
     assert df.empty
 
 
-@patch("data.collector.ccxt")
-def test_fetch_all_history_pagination(mock_ccxt):
+@patch("ccxt.binance")
+def test_fetch_all_history_pagination(mock_binance_class):
     """Test that fetch_all_history paginates correctly."""
     mock_exchange = MagicMock()
     # First call returns 1000, second returns 500 (< limit, signals end)
@@ -53,7 +53,7 @@ def test_fetch_all_history_pagination(mock_ccxt):
         _make_ohlcv_raw(1000, start_ts=1704067200000),
         _make_ohlcv_raw(500, start_ts=1704067200000 + 1000 * 3600000),
     ]
-    mock_ccxt.binance.return_value = mock_exchange
+    mock_binance_class.return_value = mock_exchange
 
     collector = DataCollector("binance")
     df = collector.fetch_all_history("BTC/USDT", "1h")

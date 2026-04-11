@@ -123,21 +123,19 @@ def cmd_digest(args: argparse.Namespace) -> None:
     """Send weekly digest to Discord (or print preview without --notify)."""
     init_db()
     if args.notify:
-        from alerts.discord_bot import send_weekly_digest
+        from alerts.digest import send_weekly_digest
         sent = send_weekly_digest()
         if sent:
             print("Weekly digest sent to Discord.")
         else:
             print("Digest not sent (already sent within last 6 days, or webhook not configured).")
     else:
-        from datetime import date as _date
-        last_halving = _date(2024, 4, 19)
-        months = (_date.today() - last_halving).days / 30.44
+        hc = halving_cycle_info()
+        months = hc["months_elapsed"]
         print("CryptoTrader - Digest Preview (use --notify to send)")
         print("=" * 55)
         print(f"  Ciclo halving: mes {months:.1f}/48 desde halving abr-2024")
-        in_risk = 18 <= months < 24
-        if in_risk:
+        if hc["in_risk_zone"]:
             print("  [WATCH] Zona de menor retorno historico (meses 18-24): -7.2% a 30d vs baseline")
         else:
             print("  [OK] Fuera de zona de riesgo del ciclo")

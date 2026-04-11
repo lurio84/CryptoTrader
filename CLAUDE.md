@@ -88,23 +88,28 @@ python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 ## Convenciones
 
 - Conventional commits (hook configurado): feat:, fix:, docs:, etc.
-- Tests: pytest, 65 tests actualmente
+- Tests: pytest, 76 tests actualmente
 - NO usar caracteres unicode especiales en Python (Windows cp1252)
 - SQLAlchemy: convertir a dicts dentro del `with get_session()` antes de usar fuera del bloque.
   Patron de referencia: `_row_to_dict` en `cmd_portfolio` de `main.py`.
 - Migraciones DB: `PRAGMA table_info` + `ALTER TABLE` en `init_db()`.
   Referencia: `data/database.py:_migrate_user_trade()` (idempotente).
 - yfinance: import lazy (dentro de funciones) para que CI funcione sin ella.
+- ccxt: import lazy (dentro de `__init__` de la clase) en `data/collector.py` y `data/sentiment.py`
+- Retry API: `_get_with_retry()` en `data/market_data.py` (3 intentos, backoff exponencial 1s/2s)
+- MVRV None-safe: `fetch_mvrv()` retorna `None` si la key no esta en la respuesta (no `0.0`)
 
 ## Estructura relevante
 
 ```
-alerts/discord_bot.py     -- Logica alertas + Discord webhooks + digest semanal
-data/market_data.py       -- Capa centralizada de APIs externas (CoinGecko, OKX, CoinMetrics)
+alerts/discord_bot.py     -- Logica alertas + Discord webhooks (constantes, dedup, sender)
+alerts/digest.py          -- Digest semanal: send_weekly_digest() (importa de discord_bot, no al reves)
+data/market_data.py       -- Capa centralizada de APIs externas (CoinGecko, OKX, CoinMetrics, Stooq)
 data/portfolio.py         -- Logica FIFO e IRPF (solo crypto)
 data/etf_prices.py        -- Precios ETF en EUR via yfinance (local-only)
 analysis/monte_carlo.py   -- Proyeccion jubilacion Monte Carlo
-dashboard/app.py          -- FastAPI + dashboard web
+dashboard/app.py          -- FastAPI + dashboard web (usa halving_cycle_info de cli/constants)
+cli/constants.py          -- SPARPLAN_TARGETS, LAST_HALVING, halving_cycle_info() (fuente de verdad)
 main.py                   -- CLI entry point (14 comandos)
 research/                 -- Scripts standalone de research (excluidos de contexto Claude)
 ```

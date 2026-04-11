@@ -102,7 +102,7 @@ Setup:
 |-- data/                        # Data models, DB, collectors
 |-- dashboard/                   # FastAPI web dashboard
 |-- backtesting/                 # Research scripts (8 analyses, 2018-2026)
-|-- tests/                       # 41 tests
+|-- tests/                       # 60+ tests
 |-- .github/workflows/
     |-- crypto-check.yml         # Auto check every 4h
 ```

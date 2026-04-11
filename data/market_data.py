@@ -13,10 +13,35 @@ APIs used:
 from __future__ import annotations
 
 import logging
+import time
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+def _get_with_retry(url: str, params: dict | None = None, timeout: int = 10, retries: int = 3) -> requests.Response:
+    """HTTP GET with exponential backoff retry on transient network errors.
+
+    Raises the last exception if all retries are exhausted.
+    Waits 1s, 2s between attempts (2^attempt seconds).
+    """
+    last_exc: Exception | None = None
+    for attempt in range(retries):
+        try:
+            resp = requests.get(url, params=params, timeout=timeout)
+            resp.raise_for_status()
+            return resp
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries - 1:
+                wait = 2 ** attempt
+                logger.warning(
+                    "API request failed (attempt %d/%d), retry in %ds: %s",
+                    attempt + 1, retries, wait, exc,
+                )
+                time.sleep(wait)
+    raise last_exc  # type: ignore[misc]
 
 
 def fetch_prices() -> dict:
@@ -28,7 +53,7 @@ def fetch_prices() -> dict:
     All values are None on failure.
     """
     try:
-        resp = requests.get(
+        resp = _get_with_retry(
             "https://api.coingecko.com/api/v3/simple/price",
             params={
                 "ids": "bitcoin,ethereum",
@@ -37,7 +62,6 @@ def fetch_prices() -> dict:
             },
             timeout=10,
         )
-        resp.raise_for_status()
         data = resp.json()
         return {
             "btc_price":       data["bitcoin"]["usd"],
@@ -66,7 +90,7 @@ def fetch_mvrv(asset: str) -> float | None:
     MVRV predicts HIGHER returns, not lower. Not a sell signal.
     """
     try:
-        resp = requests.get(
+        resp = _get_with_retry(
             "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics",
             params={
                 "assets": asset,
@@ -77,10 +101,10 @@ def fetch_mvrv(asset: str) -> float | None:
             },
             timeout=10,
         )
-        resp.raise_for_status()
         data = resp.json().get("data", [])
         if data:
-            return float(data[0].get("CapMVRVCur", 0))
+            raw = data[0].get("CapMVRVCur")
+            return float(raw) if raw is not None else None
         return None
     except Exception as e:
         logger.error("Failed to fetch %s MVRV: %s", asset.upper(), e)
@@ -94,12 +118,11 @@ def fetch_funding_rate() -> float | None:
     Returns float rate (e.g. -0.0001 = -0.01%), or None on failure.
     """
     try:
-        resp = requests.get(
+        resp = _get_with_retry(
             "https://www.okx.com/api/v5/public/funding-rate",
             params={"instId": "BTC-USDT-SWAP"},
             timeout=10,
         )
-        resp.raise_for_status()
         data = resp.json().get("data", [])
         if data:
             return float(data[0]["fundingRate"])
@@ -131,8 +154,7 @@ def fetch_sp500_change(days: int = 5) -> float | None:
                 start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
             )
         )
-        resp = requests.get(url, timeout=15)
-        resp.raise_for_status()
+        resp = _get_with_retry(url, timeout=15)
         reader = csv.DictReader(io.StringIO(resp.text))
         rows = [r for r in reader if r.get("Close") and r["Close"] != "null"]
         if len(rows) < 2:
@@ -159,11 +181,10 @@ def fetch_fear_greed() -> dict:
     gives WORSE returns than baseline. Kept as informational display only.
     """
     try:
-        resp = requests.get(
+        resp = _get_with_retry(
             "https://api.alternative.me/fng/?limit=1",
             timeout=10,
         )
-        resp.raise_for_status()
         data = resp.json().get("data", [{}])[0]
         return {
             "fear_greed_value": int(data.get("value", 0)),

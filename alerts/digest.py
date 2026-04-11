@@ -18,6 +18,7 @@ from alerts.discord_bot import (
     _already_alerted,
     _log_alert,
     send_discord_message,
+    BTC_CRASH_THRESHOLD,
     BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP, BTC_DCA_OUT_MAX,
     ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP, ETH_DCA_OUT_MAX,
     SP500_CRASH_THRESHOLD, ETH_MVRV_CRITICAL, ETH_MVRV_LOW,
@@ -143,7 +144,6 @@ def send_weekly_digest() -> bool:
     signals_lines = []
 
     if btc_change is not None:
-        from alerts.discord_bot import BTC_CRASH_THRESHOLD
         gap_crash = btc_change - BTC_CRASH_THRESHOLD
         if gap_crash > 0:
             signals_lines.append("BTC crash: -{:.1f}pp para umbral (actual: {:+.1f}% 24h)".format(gap_crash, btc_change))

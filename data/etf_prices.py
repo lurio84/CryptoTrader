@@ -9,6 +9,10 @@ All functions return None gracefully on any network or import failure.
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Ticker mapping: canonical asset name -> yfinance symbol
 # ---------------------------------------------------------------------------
@@ -30,7 +34,8 @@ def _get_eur_usd() -> float | None:
         if hist.empty:
             return None
         return float(hist["Close"].iloc[-1])
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to fetch EUR/USD rate from yfinance: %s", e)
         return None
 
 
@@ -55,7 +60,8 @@ def fetch_etf_price_eur(asset_name: str) -> float | None:
             return None
         price_usd = float(hist["Close"].iloc[-1])
         return price_usd / eurusd
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to fetch ETF price for %s: %s", asset_name, e)
         return None
 
 
@@ -83,6 +89,7 @@ def fetch_all_etf_prices_eur() -> dict[str, float | None]:
                 result[asset_name] = None
             else:
                 result[asset_name] = float(hist["Close"].iloc[-1]) / eurusd
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to fetch price for %s: %s", asset_name, e)
             result[asset_name] = None
     return result

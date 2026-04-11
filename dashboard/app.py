@@ -1,7 +1,7 @@
 """FastAPI dashboard for CryptoTrader Advisor."""
 
 import logging
-from datetime import datetime, date, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -16,6 +16,7 @@ from alerts.discord_bot import (
     BTC_CRASH_THRESHOLD, FUNDING_RATE_THRESHOLD,
     ETH_MVRV_CRITICAL, ETH_MVRV_LOW,
 )
+from cli.constants import halving_cycle_info
 
 logger = logging.getLogger(__name__)
 
@@ -23,28 +24,15 @@ app = FastAPI(title="CryptoTrader Advisor")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
-_LAST_HALVING = date(2024, 4, 19)
-_CYCLE_DAYS = 48 * 30.44   # ~4 anos en dias
-# Research3: fase mas debil meses 18-24 post-halving (30d=-7.2% vs baseline)
-# Halving abril 2024 -> riesgo: octubre 2025 - abril 2026
-_RISK_ZONE_START_MONTHS = 18
-_RISK_ZONE_END_MONTHS = 24
-
-
 def _get_halving_cycle() -> dict:
-    """Return current halving cycle phase info."""
-    today = date.today()
-    days_elapsed = (today - _LAST_HALVING).days
-    months_elapsed = days_elapsed / 30.44
-    cycle_pct = min(days_elapsed / _CYCLE_DAYS * 100, 100)
-    in_risk_zone = _RISK_ZONE_START_MONTHS <= months_elapsed < _RISK_ZONE_END_MONTHS
-    next_halving_year = 2028
+    """Return current halving cycle phase info (sourced from cli.constants)."""
+    info = halving_cycle_info()
     return {
-        "months_elapsed": round(months_elapsed, 1),
-        "cycle_pct": round(cycle_pct, 1),
-        "in_risk_zone": in_risk_zone,
-        "next_halving_year": next_halving_year,
-        "halving_date": _LAST_HALVING.strftime("%b %Y"),
+        "months_elapsed": round(info["months_elapsed"], 1),
+        "cycle_pct": info["cycle_pct"],
+        "in_risk_zone": info["in_risk_zone"],
+        "next_halving_year": info["next_halving_year"],
+        "halving_date": info["halving_date_fmt"],
     }
 
 
@@ -145,6 +133,13 @@ def api_status():
     """JSON endpoint for current status - fetches all data in parallel."""
     from concurrent.futures import ThreadPoolExecutor
 
+    def _safe_result(future, default):
+        try:
+            return future.result(timeout=20)
+        except Exception as exc:
+            logger.error("API fetch failed in /api/status: %s", exc)
+            return default
+
     with ThreadPoolExecutor(max_workers=5) as pool:
         f_prices  = pool.submit(fetch_prices)
         f_fg      = pool.submit(fetch_fear_greed)
@@ -152,11 +147,15 @@ def api_status():
         f_btc_mvrv = pool.submit(fetch_mvrv, "btc")
         f_funding  = pool.submit(fetch_funding_rate)
 
-    prices = f_prices.result()
-    fg = f_fg.result()
-    eth_mvrv = f_eth_mvrv.result()
-    btc_mvrv = f_btc_mvrv.result()
-    funding_rate = f_funding.result()
+    _empty_prices = {
+        "btc_price": None, "btc_price_eur": None, "btc_change_24h": None,
+        "eth_price": None, "eth_price_eur": None, "eth_change_24h": None,
+    }
+    prices = _safe_result(f_prices, _empty_prices)
+    fg = _safe_result(f_fg, {"fear_greed_value": None, "fear_greed_label": "N/A"})
+    eth_mvrv = _safe_result(f_eth_mvrv, None)
+    btc_mvrv = _safe_result(f_btc_mvrv, None)
+    funding_rate = _safe_result(f_funding, None)
     halving = _get_halving_cycle()
     alerts = _evaluate_alerts(prices, funding_rate, eth_mvrv)
 

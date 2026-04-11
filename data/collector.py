@@ -1,4 +1,5 @@
-import ccxt
+import logging
+
 import pandas as pd
 from datetime import datetime
 from sqlalchemy import select
@@ -7,14 +8,17 @@ from config.settings import settings
 from data.database import get_session
 from data.models import Candle
 
+logger = logging.getLogger(__name__)
+
 
 class DataCollector:
     """Collects OHLCV data from exchanges via ccxt."""
 
     def __init__(self, exchange_id: str | None = None):
+        import ccxt  # lazy-load: heavy library, not needed in CI/alerts
         exchange_id = exchange_id or settings.default_exchange
         exchange_class = getattr(ccxt, exchange_id)
-        self.exchange: ccxt.Exchange = exchange_class(
+        self.exchange = exchange_class(
             {
                 "apiKey": settings.binance.api_key or None,
                 "secret": settings.binance.api_secret or None,
@@ -30,10 +34,18 @@ class DataCollector:
         limit: int = 1000,
     ) -> pd.DataFrame:
         """Fetch OHLCV candles from exchange and return as DataFrame."""
+        import ccxt  # already imported in __init__, but needed for exception types
         since_ms = int(since.timestamp() * 1000) if since else None
-        raw = self.exchange.fetch_ohlcv(
-            symbol, timeframe=timeframe, since=since_ms, limit=limit
-        )
+        try:
+            raw = self.exchange.fetch_ohlcv(
+                symbol, timeframe=timeframe, since=since_ms, limit=limit
+            )
+        except (ccxt.NetworkError, ccxt.RateLimitExceeded) as e:
+            logger.warning("Exchange network error fetching %s: %s", symbol, e)
+            raise
+        except ccxt.BaseError as e:
+            logger.error("Exchange error fetching %s: %s", symbol, e)
+            raise
         if not raw:
             return pd.DataFrame()
 

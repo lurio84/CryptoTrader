@@ -1,5 +1,6 @@
+import logging
+
 import requests
-import ccxt
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import select
@@ -8,6 +9,8 @@ from config.settings import settings
 from data.database import get_session
 from data.models import SentimentData
 
+logger = logging.getLogger(__name__)
+
 
 class SentimentCollector:
     """Collects Fear & Greed Index and funding rates."""
@@ -15,8 +18,9 @@ class SentimentCollector:
     FNG_API_URL = "https://api.alternative.me/fng/"
 
     def __init__(self):
+        import ccxt  # lazy-load: heavy library, not needed in CI/alerts
         exchange_class = getattr(ccxt, settings.default_exchange)
-        self.exchange: ccxt.Exchange = exchange_class({"enableRateLimit": True})
+        self.exchange = exchange_class({"enableRateLimit": True})
 
     def fetch_fear_greed(self, days: int = 365) -> pd.DataFrame:
         """Fetch Fear & Greed Index history from alternative.me."""
@@ -49,13 +53,14 @@ class SentimentCollector:
         try:
             rate = self.exchange.fetch_funding_rate(symbol)
             return rate.get("fundingRate")
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to fetch funding rate for %s: %s", symbol, e)
             return None
 
     def fetch_funding_history(
         self, symbol: str = "BTC/USDT:USDT", since: datetime | None = None, limit: int = 1000
     ) -> pd.DataFrame:
-        """Fetch historical funding rates."""
+        """Fetch historical funding rates (used by collect_all for DB population)."""
         try:
             since_ms = int(since.timestamp() * 1000) if since else None
             rates = self.exchange.fetch_funding_rate_history(
@@ -74,7 +79,8 @@ class SentimentCollector:
                     "symbol": symbol,
                 })
             return pd.DataFrame(records)
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to fetch funding history for %s: %s", symbol, e)
             return pd.DataFrame()
 
     def save_sentiment(self, df: pd.DataFrame) -> int:

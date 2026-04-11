@@ -339,3 +339,66 @@ def test_sp500_none_does_not_crash(db_session):
         result = check_and_alert()
 
     assert not any(a["type"] == "sp500_crash" for a in result)
+
+
+# ---------------------------------------------------------------------------
+# send_weekly_digest (alerts/digest.py)
+# ---------------------------------------------------------------------------
+
+def test_weekly_digest_sends_when_no_prior(db_session):
+    """send_weekly_digest sends message when no prior digest in last 6 days."""
+    with (
+        patch("alerts.digest.fetch_prices", return_value=_normal_prices()),
+        patch("alerts.digest.fetch_mvrv", return_value=1.5),
+        patch("alerts.digest.fetch_funding_rate", return_value=0.0001),
+        patch("alerts.digest.fetch_sp500_change", return_value=1.0),
+        patch("alerts.digest.send_discord_message", return_value=True),
+        patch("alerts.digest.init_db"),
+        patch("alerts.digest.get_session", _make_session_ctx(db_session)),
+    ):
+        from alerts.digest import send_weekly_digest
+        result = send_weekly_digest()
+
+    assert result is True
+
+
+def test_weekly_digest_skipped_when_recent(db_session):
+    """send_weekly_digest skips if digest was already sent within 6 days."""
+    from alerts.discord_bot import _log_alert
+    _log_alert(db_session, "weekly_digest", "blue", 50000.0, 2500.0, 1.5, notified=True)
+    db_session.commit()
+
+    with (
+        patch("alerts.digest.fetch_prices", return_value=_normal_prices()),
+        patch("alerts.digest.fetch_mvrv", return_value=1.5),
+        patch("alerts.digest.fetch_funding_rate", return_value=0.0001),
+        patch("alerts.digest.fetch_sp500_change", return_value=1.0),
+        patch("alerts.digest.send_discord_message", return_value=True),
+        patch("alerts.digest.init_db"),
+        patch("alerts.digest.get_session", _make_session_ctx(db_session)),
+    ):
+        from alerts.digest import send_weekly_digest
+        result = send_weekly_digest()
+
+    assert result is False
+
+
+def test_weekly_digest_handles_none_prices(db_session):
+    """send_weekly_digest does not crash when all prices/indicators are None."""
+    none_prices = {
+        "btc_price": None, "btc_price_eur": None, "btc_change_24h": None,
+        "eth_price": None, "eth_price_eur": None, "eth_change_24h": None,
+    }
+    with (
+        patch("alerts.digest.fetch_prices", return_value=none_prices),
+        patch("alerts.digest.fetch_mvrv", return_value=None),
+        patch("alerts.digest.fetch_funding_rate", return_value=None),
+        patch("alerts.digest.fetch_sp500_change", return_value=None),
+        patch("alerts.digest.send_discord_message", return_value=True),
+        patch("alerts.digest.init_db"),
+        patch("alerts.digest.get_session", _make_session_ctx(db_session)),
+    ):
+        from alerts.digest import send_weekly_digest
+        result = send_weekly_digest()
+
+    assert result is True
