@@ -238,7 +238,7 @@ def cmd_check(args: argparse.Namespace) -> None:
     if mvrv is not None:
         print(f"    ETH MVRV: {mvrv:.3f}")
     if btc_mvrv is not None:
-        print(f"    BTC MVRV: {btc_mvrv:.3f}  (informativo, no es senial de venta)")
+        print(f"    BTC MVRV: {btc_mvrv:.3f}  (informativo, no es señal de venta)")
 
     # Halving cycle
     hc = _halving_cycle_info()

@@ -171,7 +171,7 @@ def _fetch_eth_mvrv() -> float | None:
 
 
 def _fetch_btc_mvrv() -> float | None:
-    """Fetch BTC MVRV from CoinMetrics (informativo, no es senial de venta)."""
+    """Fetch BTC MVRV from CoinMetrics (informativo, no es señal de venta)."""
     try:
         resp = requests.get(
             "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics",
@@ -493,13 +493,13 @@ def send_weekly_digest() -> bool:
             alert_lines.append("{} `{}` {}".format(ts, a.alert_type, a.severity.upper()))
         alerts_text = "\n".join(alert_lines)
     else:
-        alerts_text = "Semana sin seniales -- Sparplan corriendo con normalidad."
+        alerts_text = "Semana sin señales -- Sparplan corriendo con normalidad."
     fields.append({"name": "Alertas ultimos 7 dias ({:d})".format(len(recent_alerts)), "value": alerts_text, "inline": False})
 
     payload = {
         "embeds": [{
             "title": "Resumen Semanal CryptoTrader",
-            "description": "Estado del mercado y seniales de la semana.",
+            "description": "Estado del mercado y señales de la semana.",
             "color": 0x3B82F6,
             "fields": fields,
             "footer": {"text": "CryptoTrader Advisor -- Domingo"},

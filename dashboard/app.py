@@ -97,7 +97,7 @@ def _fetch_eth_mvrv() -> float | None:
 
 
 def _fetch_btc_mvrv() -> float | None:
-    """Fetch BTC MVRV from CoinMetrics community API (informativo, no es senal de venta)."""
+    """Fetch BTC MVRV from CoinMetrics community API (informativo, no es señal de venta)."""
     try:
         resp = requests.get(
             "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics",
@@ -121,7 +121,7 @@ def _fetch_btc_mvrv() -> float | None:
 
 
 _LAST_HALVING = date(2024, 4, 19)
-_CYCLE_DAYS = 48 * 30.44   # ~4 anios en dias
+_CYCLE_DAYS = 48 * 30.44   # ~4 anos en dias
 # Research3: fase mas debil meses 18-24 post-halving (30d=-7.2% vs baseline)
 # Halving abril 2024 -> riesgo: octubre 2025 - abril 2026
 _RISK_ZONE_START_MONTHS = 18
@@ -146,17 +146,17 @@ def _get_halving_cycle() -> dict:
 
 
 def _get_latest_funding_rate() -> float | None:
-    """Get the latest BTC funding rate from DB."""
+    """Fetch current BTC funding rate live from OKX."""
     try:
-        with get_session() as session:
-            row = session.execute(
-                select(SentimentData)
-                .where(SentimentData.funding_rate_btc.isnot(None))
-                .order_by(SentimentData.timestamp.desc())
-                .limit(1)
-            ).scalar_one_or_none()
-            if row:
-                return row.funding_rate_btc
+        resp = requests.get(
+            "https://www.okx.com/api/v5/public/funding-rate",
+            params={"instId": "BTC-USDT-SWAP"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if data:
+            return float(data[0]["fundingRate"])
         return None
     except Exception:
         return None
