@@ -304,8 +304,9 @@ Se auditaron todos los scripts de backtesting y alertas. Bugs corregidos:
 | BTC comprado y vendido el mismo dia en simulacion DCA-out | `research3.py` + `research4.py` | < 7 EUR sobre miles, negligible |
 | Liquidacion final sin comision 1 EUR de TR | `research/exit_signals_research4.py` | 1 EUR, negligible |
 | DetachedInstanceError en send_weekly_digest(): AlertLog leido fuera de sesion SQLAlchemy | `alerts/discord_bot.py` | Ninguno (bug de produccion, CI fallaba en digest --notify) |
+| Dead code `_format_status_embed()` + claves `*_raw` en contexto dashboard | `alerts/discord_bot.py:90-113` + `dashboard/app.py` | Ninguno (nunca se llamaban/usaban) |
 
-Todos los 41 tests siguen pasando. Las conclusiones estrategicas no cambian.
+Todos los 60 tests siguen pasando. Las conclusiones estrategicas no cambian.
 Los numeros de research4 (IRPF) son los definitivos tras la correccion EUR/USD.
 
 ## Mejoras de interfaz y herramientas (2026-04)
@@ -500,7 +501,7 @@ python main.py sentiment --since 2020-01-01
 ## Convenciones
 
 - Conventional commits (hay hook configurado): feat:, fix:, etc.
-- Tests: pytest, 41 tests actualmente
+- Tests: pytest, 60 tests actualmente
 - NO usar caracteres unicode especiales en Python (Windows cp1252)
 - Objetos SQLAlchemy se expiran al cerrar sesion (expire_on_commit=True por defecto).
   Convertir a dicts dentro del `with get_session()` antes de usar fuera del bloque.

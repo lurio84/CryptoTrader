@@ -11,9 +11,7 @@ Pattern: patch as close to usage as possible, i.e. "alerts.discord_bot.X".
 """
 
 from contextlib import contextmanager
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import patch
 
 from data.models import AlertLog
 
@@ -55,7 +53,6 @@ def test_already_alerted_no_prior(db_session):
 
 def test_already_alerted_after_logging(db_session):
     """After logging an alert, _already_alerted returns True within cooldown."""
-    from datetime import datetime, timezone
     from alerts.discord_bot import _already_alerted, _log_alert
 
     _log_alert(db_session, "btc_crash", "red", 50000.0, 2500.0, -16.0, notified=True)
@@ -214,6 +211,26 @@ def test_btc_dca_out_level_triggered(db_session):
     assert "btc_dca_out_100k" not in types  # $90k does not reach $100k level
 
 
+def test_eth_dca_out_level_triggered(db_session):
+    """ETH at $3500 triggers the $3k DCA-out level but not $4k."""
+    prices = {**_normal_prices(), "eth_price": 3_500.0, "eth_price_eur": 3_150.0}
+
+    with (
+        patch("alerts.discord_bot.fetch_prices", return_value=prices),
+        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
+        patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.send_discord_message", return_value=True),
+        patch("alerts.discord_bot.init_db"),
+        patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
+    ):
+        from alerts.discord_bot import check_and_alert
+        result = check_and_alert()
+
+    types = [a["type"] for a in result]
+    assert "eth_dca_out_3k" in types
+    assert "eth_dca_out_4k" not in types  # $3500 does not reach $4k level
+
+
 # ---------------------------------------------------------------------------
 # check_and_alert -- deduplication
 # ---------------------------------------------------------------------------
@@ -221,14 +238,6 @@ def test_btc_dca_out_level_triggered(db_session):
 def test_deduplication_prevents_double_alert(db_session):
     """Same alert within cooldown window is not sent twice."""
     prices = {**_normal_prices(), "btc_change_24h": -16.0}
-    kwargs = dict(
-        fetch_prices=patch("alerts.discord_bot.fetch_prices", return_value=prices),
-        fetch_mvrv=patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
-        fetch_funding_rate=patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
-        send_discord=patch("alerts.discord_bot.send_discord_message", return_value=True),
-        init_db=patch("alerts.discord_bot.init_db"),
-        get_session=patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
-    )
 
     from alerts.discord_bot import check_and_alert
 

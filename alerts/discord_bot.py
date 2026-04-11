@@ -87,32 +87,6 @@ def _format_embed(alert_type: str, severity: str, details: dict) -> dict:
     }
 
 
-def _format_status_embed(data: dict) -> dict:
-    """Format a status check embed (no alert triggered)."""
-    fields = []
-    if data.get("btc_price") is not None:
-        change = data.get("btc_change", 0)
-        fields.append({"name": "BTC", "value": "${:,.0f} ({:+.1f}%)".format(data["btc_price"], change), "inline": True})
-    if data.get("eth_price") is not None:
-        fields.append({"name": "ETH", "value": "${:,.0f}".format(data["eth_price"]), "inline": True})
-    if data.get("fear_greed") is not None:
-        fields.append({"name": "Fear & Greed", "value": str(data["fear_greed"]), "inline": True})
-    if data.get("funding_rate") is not None:
-        fields.append({"name": "Funding", "value": "{:.4f}%".format(data["funding_rate"] * 100), "inline": True})
-    if data.get("mvrv") is not None:
-        fields.append({"name": "ETH MVRV", "value": "{:.3f}".format(data["mvrv"]), "inline": True})
-
-    return {
-        "embeds": [{
-            "title": "CryptoTrader Status",
-            "description": "All signals within normal ranges. No action needed.",
-            "color": 0x22C55E,
-            "fields": fields,
-            "footer": {"text": "CryptoTrader Advisor"},
-        }]
-    }
-
-
 # ---------------------------------------------------------------------------
 # Sending
 # ---------------------------------------------------------------------------
