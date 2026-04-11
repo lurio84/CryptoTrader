@@ -1,0 +1,162 @@
+"""Operational commands: check, digest, dashboard, monitor."""
+
+import argparse
+
+from data.database import init_db
+from cli.constants import halving_cycle_info
+
+
+def cmd_check(args: argparse.Namespace) -> None:
+    """Quick check: fetch all signals and show current status."""
+    init_db()
+    from data.market_data import fetch_prices, fetch_mvrv, fetch_funding_rate, fetch_fear_greed
+    from alerts.discord_bot import (
+        BTC_CRASH_THRESHOLD, FUNDING_RATE_THRESHOLD,
+        ETH_MVRV_CRITICAL, ETH_MVRV_LOW,
+        BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP, BTC_DCA_OUT_MAX, BTC_DCA_OUT_PCT,
+        ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP, ETH_DCA_OUT_MAX, ETH_DCA_OUT_PCT,
+    )
+
+    print("CryptoTrader Advisor - Quick Check")
+    print("=" * 55)
+
+    prices   = fetch_prices()
+    fg       = fetch_fear_greed()
+    mvrv     = fetch_mvrv("eth")
+    btc_mvrv = fetch_mvrv("btc")
+    funding  = fetch_funding_rate()
+
+    btc_price  = prices.get("btc_price")
+    btc_change = prices.get("btc_change_24h")
+    eth_price  = prices.get("eth_price")
+    eth_change = prices.get("eth_change_24h")
+    fg_val     = fg.get("fear_greed_value")
+    fg_label   = fg.get("fear_greed_label")
+
+    print("\n  MARKET STATUS:")
+    if btc_price:
+        color = "+" if btc_change and btc_change > 0 else ""
+        print(f"    BTC:  ${btc_price:,.2f}  ({color}{btc_change:.1f}% 24h)")
+    if eth_price:
+        color = "+" if eth_change and eth_change > 0 else ""
+        print(f"    ETH:  ${eth_price:,.2f}  ({color}{eth_change:.1f}% 24h)")
+    if fg_val is not None:
+        print(f"    F&G:  {fg_val} ({fg_label})")
+    if funding is not None:
+        print(f"    Funding: {funding*100:.4f}%")
+    if mvrv is not None:
+        print(f"    ETH MVRV: {mvrv:.3f}")
+    if btc_mvrv is not None:
+        print(f"    BTC MVRV: {btc_mvrv:.3f}  (informativo, no es senal de venta)")
+
+    hc = halving_cycle_info()
+    print("\n  CICLO HALVING:")
+    print(f"    Mes {hc['months_elapsed']:.1f}/48 desde halving {hc['halving_date']}")
+    if hc["in_risk_zone"]:
+        print("    [WATCH] Zona de menor retorno historico (meses 18-24): -7.2% a 30d vs baseline")
+        print("            Informativo: continua el Sparplan normal, no vender por este motivo")
+    else:
+        print("    [OK] Fuera de zona de riesgo del ciclo")
+
+    print("\n  SIGNALS:")
+    has_alert = False
+
+    if btc_change is not None and btc_change <= BTC_CRASH_THRESHOLD:
+        print(f"    [RED] BTC CRASH: {btc_change:.1f}% in 24h")
+        print("          -> Buy extra 100-150 EUR of BTC in Trade Republic")
+        has_alert = True
+
+    if btc_change is not None and btc_change <= -10 and btc_change > BTC_CRASH_THRESHOLD:
+        print(f"    [WATCH] BTC dropped {btc_change:.1f}% - monitoring for further drop")
+        has_alert = True
+
+    if funding is not None and funding < FUNDING_RATE_THRESHOLD:
+        print(f"    [ORANGE] Negative funding ({funding*100:.4f}%)")
+        print("          -> Bullish signal, consider extra BTC buy")
+        has_alert = True
+
+    if mvrv is not None and mvrv < ETH_MVRV_CRITICAL:
+        print(f"    [RED] ETH MVRV at {mvrv:.3f} (< {ETH_MVRV_CRITICAL}) - deep value!")
+        print("          -> Buy extra 100 EUR of ETH in Trade Republic")
+        has_alert = True
+    elif mvrv is not None and mvrv < ETH_MVRV_LOW:
+        print(f"    [YELLOW] ETH MVRV at {mvrv:.3f} (< {ETH_MVRV_LOW}) - undervalued")
+        print("          -> Consider increasing ETH Sparplan temporarily")
+        has_alert = True
+
+    if btc_price is not None:
+        level = BTC_DCA_OUT_BASE
+        level_num = 1
+        while level <= BTC_DCA_OUT_MAX:
+            if btc_price >= level:
+                print(f"    [ORANGE] BTC DCA-out nivel {level_num} (${level:,.0f}): vende el {BTC_DCA_OUT_PCT}% de tus BTC en TR")
+                has_alert = True
+            level += BTC_DCA_OUT_STEP
+            level_num += 1
+
+    if eth_price is not None:
+        level = ETH_DCA_OUT_BASE
+        level_num = 1
+        while level <= ETH_DCA_OUT_MAX:
+            if eth_price >= level:
+                print(f"    [ORANGE] ETH DCA-out nivel {level_num} (${level:,.0f}): vende el {ETH_DCA_OUT_PCT}% de tu ETH en TR")
+                has_alert = True
+            level += ETH_DCA_OUT_STEP
+            level_num += 1
+
+    if not has_alert:
+        print("    [OK] No action needed. Sparplan running as usual.")
+
+    if args.notify:
+        from alerts.discord_bot import check_and_alert
+        triggered = check_and_alert()
+        if triggered:
+            sent = sum(1 for a in triggered if a.get("sent"))
+            print(f"\n  Discord alerts sent: {sent}/{len(triggered)}")
+        else:
+            print("\n  No alerts triggered.")
+
+    print(f"\n{'='*55}")
+
+
+def cmd_digest(args: argparse.Namespace) -> None:
+    """Send weekly digest to Discord (or print preview without --notify)."""
+    init_db()
+    if args.notify:
+        from alerts.discord_bot import send_weekly_digest
+        sent = send_weekly_digest()
+        if sent:
+            print("Weekly digest sent to Discord.")
+        else:
+            print("Digest not sent (already sent within last 6 days, or webhook not configured).")
+    else:
+        from datetime import date as _date
+        last_halving = _date(2024, 4, 19)
+        months = (_date.today() - last_halving).days / 30.44
+        print("CryptoTrader - Digest Preview (use --notify to send)")
+        print("=" * 55)
+        print(f"  Ciclo halving: mes {months:.1f}/48 desde halving abr-2024")
+        in_risk = 18 <= months < 24
+        if in_risk:
+            print("  [WATCH] Zona de menor retorno historico (meses 18-24): -7.2% a 30d vs baseline")
+        else:
+            print("  [OK] Fuera de zona de riesgo del ciclo")
+        print("  Use --notify para enviar el embed completo a Discord.")
+        print("=" * 55)
+
+
+def cmd_dashboard(args: argparse.Namespace) -> None:
+    """Run the web dashboard on localhost."""
+    import uvicorn
+    host = args.host or "127.0.0.1"
+    port = args.port or 8000
+    print(f"Starting CryptoTrader Dashboard at http://{host}:{port}")
+    uvicorn.run("dashboard.app:app", host=host, port=port, reload=False)
+
+
+def cmd_monitor(args: argparse.Namespace) -> None:
+    """Run the background alert monitor."""
+    init_db()
+    from alerts.monitor import start_monitor
+    interval = args.interval or 1
+    start_monitor(interval_hours=interval)

@@ -31,7 +31,7 @@ jobs:
           restore-keys: cryptotrader-db-
 
       - name: Install dependencies
-        run: pip install -e ".[all]"
+        run: pip install -e "."
 
       - name: Run tests
         run: pytest tests/ -q

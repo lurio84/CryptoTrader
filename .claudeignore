@@ -1,0 +1,9 @@
+# Scripts de research standalone (no son codigo de produccion)
+research/
+
+# Template HTML grande (solo necesario al trabajar en UI)
+dashboard/templates/index.html
+
+# Cache de datos (ya en .gitignore)
+data/research_cache/
+data/cryptotrader.db
