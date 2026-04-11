@@ -34,7 +34,7 @@ Alertas de compra extra manual (1 EUR fee en TR, 2-5 veces/ano):
 
 ## Hallazgos sobre estrategias de salida/rebalanceo (research 2026-04)
 
-Script: `backtesting/exit_strategy_research.py` (datos reales 2018-2026)
+Script: `research/exit_strategy_research.py` (datos reales 2018-2026)
 
 ### Analisis 1: Rebalanceo por porcentaje de cartera
 - Rebalanceo ANUAL es la mejor estrategia: +209% vs +164% sin rebalanceo (CAGR 14.7% vs 12.5%)
@@ -90,7 +90,7 @@ Script: `backtesting/exit_strategy_research.py` (datos reales 2018-2026)
 
 ### Analisis adicional: Senales relativas con N>10 (exit_signals_research2.py, 2026-04)
 
-Script: `backtesting/exit_signals_research2.py` (datos reales 2018-2026)
+Script: `research/exit_signals_research2.py` (datos reales 2018-2026)
 Motivacion: buscar senales de venta con mas eventos historicos que N=1 (precio absoluto)
 
 #### Analisis A: BTC precio / 200-day MA ratio (bins por nivel de sobrecalentamiento)
@@ -131,7 +131,7 @@ Motivacion: buscar senales de venta con mas eventos historicos que N=1 (precio a
 
 ## Research 3: On-chain + DCA-out sistematico + rigor estadistico (2026-04)
 
-Script: `backtesting/exit_signals_research3.py`
+Script: `research/exit_signals_research3.py`
 Mejoras metodologicas: bootstrap CI 95%, Mann-Whitney U test, split exploracion/validacion (2018-2022 / 2022-2026), nota de multiple comparisons.
 
 ### Analisis 1: NVT ratio proxy (CapMrktCurUSD / TxTfrCnt / PriceUSD)
@@ -177,14 +177,14 @@ Mejoras metodologicas: bootstrap CI 95%, Mann-Whitney U test, split exploracion/
 
 ## Research 5: Simulacion plan completo 2020-2026 (2026-04)
 
-Script: `backtesting/full_plan_simulation_2020.py`
+Script: `research/full_plan_simulation_2020.py`
 Simula el plan real completo: BTC 8€/sem + ETH 2€/sem + crash buys + MVRV buys + DCA-out + staking ETH 4%.
 EUR/USD fijo 1.10 (media 2020-2026). Periodo: 2020-01-01 a 2026-04-01.
 
 ### Resultado con cooldown MVRV correcto (7 dias)
 - Total invertido: 6.120 EUR | Portfolio final: 33.328 EUR | Retorno: +445% | CAGR: ~31%/ano
 - Desglose inversion: BTC Sparplan 2.616€ + ETH Sparplan 654€ + BTC crash 250€ (2 eventos) + ETH MVRV 2.600€ (26 eventos)
-- DCA-out generado: 6 ventas BTC (1.920 EUR cash) + 2 ventas ETH (10.099 EUR cash)
+- DCA-out generado: 6 ventas BTC (1.920 EUR cash) + 2 ventas ETH (1.738 EUR cash)
 - Solo Sparplan base (sin alertas): 3.270 EUR → 7.917 EUR (+142%)
 
 ### Hallazgo critico: el cooldown de MVRV importa muchisimo
@@ -196,7 +196,7 @@ EUR/USD fijo 1.10 (media 2020-2026). Periodo: 2020-01-01 a 2026-04-01.
 
 ## Research 4: Validacion pre-implementacion DCA-out (2026-04)
 
-Script: `backtesting/exit_signals_research4.py`
+Script: `research/exit_signals_research4.py`
 
 ### Parte 1: Impacto fiscal IRPF espana
 - Modelo: FIFO cost basis, brackets 2024 (19%/21%/23%/27%/28%)
@@ -219,6 +219,35 @@ Script: `backtesting/exit_signals_research4.py`
   DCA-out tiene 0.0942 BTC + 11.132 EUR cash (60% menos BTC, pero 11k EUR asegurados)
 - CONCLUSION: overfitting es real pero bounded. El riesgo es "BTC sube a $300k y no baja".
   Historicamente improbable, pero posible en ciclos futuros.
+
+## Research 6: S&P 500 crash research (2026-04)
+
+Script: `research/sp500_crash_research.py`
+Periodo: S&P 500 semanal 2000-2026 (N=1370 semanas), BTC semanal 2014-2026 (N=603 semanas).
+Metodologia: bootstrap CI 10.000 iter, Mann-Whitney U, split exploracion 2000-2012 / validacion 2012-2026.
+Thresholds testados: -5%, -7%, -10%, -15% (retorno semanal S&P).
+
+### Resultados principales
+
+- Threshold -5% (N=31 eventos): p=0.025 a 4w (delta +3.2%), p=0.004 a 13w (delta +5.6%)
+  Edge CONSISTENTE en ambos splits: expl 13w +5.2% vs validacion 13w +10.2% (se fortalece)
+- Threshold -7% (N=13 eventos): p=0.003 a 4w (delta +6.1%), p=0.012 a 13w (delta +9.5%)
+  Edge CONSISTENTE: expl 13w +7.0% vs validacion 13w +17.9% (se fortalece en validacion)
+- Threshold -10% (N=5): p-values no significativos (0.069 a 4w). N insuficiente.
+- Threshold -15% (N=1): N=1, sin estadistica posible.
+- VEREDICTO: RECOMENDADO (estadisticamente valido para -5% y -7%)
+
+### Senal compuesta (S&P crash + BTC crash misma semana)
+- Con threshold S&P<=-7% y BTC<=-10%: N=2 eventos (insuficiente). Solo S&P (N=3): 4w +15.8% vs baseline +0.8%
+- N demasiado pequeno para decision. Informativo: cuando S&P crashea fuerte sin contagio BTC, rebote robusto.
+- NOTA tecnica: bug de alineacion de fechas encontrado y corregido (2026-04).
+  S&P usa barras semanales con cierre viernes, BTC usa cierre domingo. Normalizar ambas a
+  lunes ISO antes del inner join. Fix en `check_compound_signal()` de sp500_crash_research.py.
+
+### Decision de implementacion
+- Senal validada estadisticamente pero NO implementada como alerta Discord todavia.
+- Si se implementa: threshold -7%, horizonte 4w-13w, compra extra 100 EUR BTC.
+- Cuidado: solo 13 eventos historicos en 26 anos. Confianza BAJA por N pequeno (similar a crash buying BTC).
 
 ## Decisiones importantes tomadas
 
@@ -271,9 +300,9 @@ Se auditaron todos los scripts de backtesting y alertas. Bugs corregidos:
 | Sharpe ratio usaba sqrt(8760) siempre (hourly) | `backtesting/metrics.py` + `engine.py` | Ninguno (solo afecta estrategias tecnicas descartadas) |
 | Cooldown de crash-buy comparaba indice entero con horas | `backtesting/crash_dca_engine.py` | Ninguno (crypto data es continua, sin gaps) |
 | Valor final de portfolio sin exit slippage | `backtesting/dca_engine.py` + `crash_dca_engine.py` | Ninguno (simetrico en todas las estrategias) |
-| Ganancias en USD aplicadas directamente a tramos IRPF en EUR | `backtesting/exit_signals_research4.py` | **SI**: taxes 2.350→2.125 EUR (hold), 3.266→2.959 EUR (DCA-out). Ventaja DCA-out 115→117pp |
+| Ganancias en USD aplicadas directamente a tramos IRPF en EUR | `research/exit_signals_research4.py` | **SI**: taxes 2.350→2.125 EUR (hold), 3.266→2.959 EUR (DCA-out). Ventaja DCA-out 115→117pp |
 | BTC comprado y vendido el mismo dia en simulacion DCA-out | `research3.py` + `research4.py` | < 7 EUR sobre miles, negligible |
-| Liquidacion final sin comision 1 EUR de TR | `backtesting/exit_signals_research4.py` | 1 EUR, negligible |
+| Liquidacion final sin comision 1 EUR de TR | `research/exit_signals_research4.py` | 1 EUR, negligible |
 
 Todos los 41 tests siguen pasando. Las conclusiones estrategicas no cambian.
 Los numeros de research4 (IRPF) son los definitivos tras la correccion EUR/USD.
@@ -365,7 +394,7 @@ python main.py retirement-plan --age 35 --retire-age 60 --target-eur 800000 --si
 
 ### S&P 500 crash research (nuevo, 2026-04)
 
-- Script standalone `backtesting/sp500_crash_research.py`.
+- Script standalone `research/sp500_crash_research.py`.
 - Datos: yfinance ^GSPC semanal 2000-2026. Cache en `data/research_cache/gspc_weekly.csv`.
 - Thresholds testados: -5%, -7%, -10%, -15% weekly return.
 - Horizontes forward: 1w, 4w, 13w, 26w, 52w.
@@ -374,18 +403,20 @@ python main.py retirement-plan --age 35 --retire-age 60 --target-eur 800000 --si
 - Conclusion automatica: RECOMENDADO o NO IMPLEMENTAR segun p-values y consistencia.
 
 ```
-python backtesting/sp500_crash_research.py
+python research/sp500_crash_research.py
 ```
 
 ### ETH Staking APY sensitivity (nuevo, 2026-04)
 
-- `backtesting/full_plan_simulation_2020.py:simulate()` acepta ahora `eth_staking_apr` (default 0.04).
-- Al ejecutar `python backtesting/full_plan_simulation_2020.py`, primero muestra tabla de
+- `research/full_plan_simulation_2020.py:simulate()` acepta ahora `eth_staking_apr` (default 0.04).
+- Al ejecutar `python research/full_plan_simulation_2020.py`, primero muestra tabla de
   sensibilidad 3%/4%/5% APY (portfolio EUR + multiplicador + CAGR) antes de los escenarios habituales.
 
 ## Investigacion pendiente (proxima sesion)
 
 ### Pendiente de baja prioridad
+- **Alerta Discord S&P 500 crash**: senal validada (Research 6, -7% threshold). Evaluar si
+  implementar como alerta extra (compra BTC cuando S&P cae >7% en una semana). N=13, confianza BAJA.
 - **Ajuste parametros DCA-out para proximo ciclo**: cuando BTC supere ATH $124k con claridad,
   reconsiderar si el nivel de inicio ($80k) sigue siendo el optimo o conviene subirlo.
 - **CDD real**: Coin Days Destroyed requiere datos de pago (no disponible en CoinMetrics free).
@@ -447,10 +478,10 @@ python main.py retirement-plan                          # defaults: 30->65, 1M E
 python main.py retirement-plan --age 35 --retire-age 60 --target-eur 800000
 
 # Research S&P 500 crashes (script standalone, requiere internet)
-python backtesting/sp500_crash_research.py
+python research/sp500_crash_research.py
 
 # Simulacion plan completo (con tabla sensibilidad staking 3/4/5%)
-python backtesting/full_plan_simulation_2020.py
+python research/full_plan_simulation_2020.py
 
 python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 python main.py sentiment --since 2020-01-01
@@ -489,3 +520,16 @@ data/
 backtesting/
   sp500_crash_research.py -- Research crashes S&P 500 (standalone script)
 ```
+
+## Protocolo de cierre de sesion (ejecutar siempre al terminar una tarea)
+
+Al finalizar cualquier tarea que involucre cambios de codigo, research o decisiones:
+
+1. **CLAUDE.md**: actualizar con nuevos hallazgos, decisiones tomadas, comandos nuevos,
+   o secciones pendiente. Es la fuente de verdad del proyecto.
+2. **Memoria**: actualizar `C:\Users\lucas\.claude\projects\...\memory\project_overview.md`
+   con cambios relevantes (nuevas herramientas, research completado, estado del sistema).
+3. **Commit**: conventional commit agrupando todos los cambios de la sesion.
+4. **Push**: `git push` al repo remoto (GitHub Actions lo usa para CI).
+
+Este protocolo aplica incluso si el usuario no lo pide explicitamente.
