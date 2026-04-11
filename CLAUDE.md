@@ -12,7 +12,7 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 - Realty Income: 4 EUR/sem (16/mes) | Uranium: 1 EUR/sem (4/mes)
 - BTC: 8 EUR/semana (32/mes) | ETH: 2 EUR/semana (8/mes) + staking activado
 
-`SPARPLAN_TARGETS` en `main.py`: BTC 22.86%, ETH 5.71%, SP500 45.71%, SEMIS 11.43%, REALTY 11.43%, URANIUM 2.86%
+`SPARPLAN_TARGETS` en `cli/constants.py`: BTC 22.86%, ETH 5.71%, SP500 45.71%, SEMIS 11.43%, REALTY 11.43%, URANIUM 2.86%
 
 ## Alertas activas en produccion
 
