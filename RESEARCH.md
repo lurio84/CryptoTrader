@@ -30,6 +30,8 @@ Todas estas senales se probaron y DESTRUYEN o NO MEJORAN el retorno vs hold DCA:
 | Halving timing mecanico | N=2 ciclos, no estadisticamente significativo | exit_signals_research3 |
 | Fear & Greed extremo | Extreme fear da PEOR retorno que baseline | exit_signals_research2 |
 | SMA/RSI/Bollinger Bands | Ninguno supera buy & hold | engine.py backtests |
+| BTC MVRV < 1.0 como compra | delta=-17.2pp a 30d, WR=31%, OOS delta=-10.4pp (WR=0%). DESCARTADO. | btc_mvrv_research |
+| BTC MVRV < 0.8 como compra | delta=-4.3pp a 30d, WR=73% (ilusion), N=11. DESCARTADO. | btc_mvrv_research |
 
 ---
 
@@ -128,6 +130,32 @@ Script: `research/sp500_crash_research.py`
 | Dead code _format_status_embed() + claves *_raw en dashboard | alerts/discord_bot.py + dashboard/app.py | Ninguno |
 
 Todos los 60 tests pasan. Conclusiones estrategicas no cambian.
+
+## Research 7: BTC MVRV como senal de compra (2026-04)
+
+Script: `research/btc_mvrv_research.py`
+
+Hipotesis: BTC MVRV < 1.0 (precio por debajo del coste medio de todos los holders) = zona de capitulacion = senal de compra. Analogia con la senal ETH MVRV validada.
+
+Datos: CoinMetrics community API, BTC CapMVRVCur + PriceUSD, 2010-2026 (5,746 dias).
+
+| Threshold | N eventos | 30d media | 30d baseline | Delta | p-valor | WR 30d |
+|-----------|-----------|-----------|--------------|-------|---------|---------|
+| MVRV < 0.8 | 11 | +9.9% | +14.2% | **-4.3pp** | 0.522 | 73% |
+| MVRV < 1.0 | 13 | -1.8% | +15.4% | **-17.2pp** | 0.174 | 31% |
+
+OOS 2021-2026 (N=4 para MVRV < 1.0, todos en 2022):
+- 30d media = -8.1%, delta = -10.4pp, WR = **0%** (BTC siguio cayendo 30 dias despues en todos los casos)
+
+**Por que falla:**
+- BTC MVRV < 1.0 se alcanza durante mercados bajistas prolongados (2018, 2022), no son suelos instantaneos
+- Los 4 eventos OOS (todos 2022) ocurrieron durante la caida post-LUNA/FTX: cada entrada fue peor en 30d
+- El 73% win rate de MVRV < 0.8 es una ilusion: son episodios de 2011-2015 cuando BTC crecia +1000% y cualquier compra habria ganado
+- La zona "sostenida" (todos los dias debajo del umbral) muestra +18.5% a 30d con p=0.000, pero es autocorrelacion: esos dias INCLUYEN la recuperacion inicial, lo cual no captura la senal de entrada
+- **Diferencia clave vs ETH MVRV:** ETH tiene realizaciones mas frecuentes (holders mas activos), sus fondos son V-shaped. BTC en capitulacion tiende a lateralizar/caer meses.
+
+**Conclusion: DESCARTADO. Alerta `btc_mvrv_critical` eliminada de produccion.**
+BTC MVRV sigue siendo informativo en el digest semanal (nivel actual), pero NO como senal de compra.
 
 ## Investigacion pendiente (baja prioridad)
 
