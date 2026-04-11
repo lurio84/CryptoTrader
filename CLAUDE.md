@@ -278,15 +278,59 @@ Se auditaron todos los scripts de backtesting y alertas. Bugs corregidos:
 Todos los 41 tests siguen pasando. Las conclusiones estrategicas no cambian.
 Los numeros de research4 (IRPF) son los definitivos tras la correccion EUR/USD.
 
+## Mejoras de interfaz y herramientas (2026-04)
+
+### Fix dashboard precio
+- `dashboard/app.py:_fetch_prices()` usaba ccxt/Binance (geo-bloqueado en GitHub Actions).
+  Reemplazado por CoinGecko identico al resto del sistema (USD + EUR + 24h_change en una sola llamada).
+
+### BTC MVRV informativo
+- Nueva funcion `_fetch_btc_mvrv()` en `alerts/discord_bot.py` y `dashboard/app.py`.
+- Visible en `python main.py check` y en el dashboard web (6a tarjeta de metricas).
+- Solo informativo -- validado en research3 que BTC MVRV alto predice MAYORES retornos (no es senal de venta).
+- Umbrales visuales: <1.0 verde, 1.0-2.0 gris, 2.0-3.0 amarillo, >3.0 naranja.
+
+### Indicador de ciclo halving
+- Calcula mes actual desde halving (abril 2024) y zona de riesgo (meses 18-24 post-halving).
+- CORRECCION: CLAUDE.md anterior decia "zona de riesgo abril-octubre 2026 (meses 12-18)".
+  Incorrecto: meses 12-18 = abril-octubre 2025 (ya paso). La zona correcta es MESES 18-24
+  (octubre 2025 - abril 2026). Hoy abril 2026 = mes 23.7, al final de la zona de riesgo.
+- Visible en `python main.py check` bajo "CICLO HALVING:" y en dashboard (barra de progreso).
+- Implementado en: `main.py:_halving_cycle_info()`, `dashboard/app.py:_get_halving_cycle()`,
+  `alerts/discord_bot.py:_halving_cycle_text()`.
+
+### Digest semanal Discord
+- Nueva funcion `send_weekly_digest()` en `alerts/discord_bot.py`.
+- 4 secciones: precios BTC+ETH (USD+EUR), indicadores on-chain (ETH MVRV, BTC MVRV, funding),
+  fase del ciclo halving, alertas de los ultimos 7 dias (desde AlertLog).
+- Deduplicacion: cooldown 6 dias (alert_type="weekly_digest" en AlertLog).
+- Nuevo comando: `python main.py digest [--notify]` (sin --notify: solo preview).
+- GitHub Actions: nuevo trigger cron `0 9 * * 0` (domingos 09:00 UTC), step condicional en workflow.
+
+### Portfolio tracker personal (FIFO + IRPF)
+- Nueva tabla `UserTrade` en `data/models.py` (se crea automaticamente con init_db).
+  Campos: date, asset (BTC/ETH), side (buy/sell), units, price_eur, fee_eur, source, notes.
+- Logica FIFO y IRPF en `data/portfolio.py` (reutiliza bracktes de research4).
+- Datos SOLO locales -- nunca en GitHub Actions ni en el repo publico.
+- Backup: `python main.py portfolio export > mis_trades.csv`.
+
+```
+python main.py portfolio add-buy  --asset BTC --units 0.001 --price-eur 45000 --source sparplan [--date YYYY-MM-DD]
+python main.py portfolio add-sell --asset BTC --units 0.0003 --price-eur 87000 --source dca_out
+python main.py portfolio show      # P&L FIFO, ganancia no realizada, IRPF estimado, proximo DCA-out
+python main.py portfolio history   # Lista todas las operaciones registradas
+python main.py portfolio export    # CSV por stdout (para backup manual)
+```
+
 ## Investigacion pendiente (proxima sesion)
 
 ### Pendiente de baja prioridad
-- **Venta por coste-base propio**: vender cuando ganancia personal > X%. Requiere conocer
-  precio medio de compra del usuario. No implementable sin datos personales.
-- **CDD real**: Coin Days Destroyed requiere datos de pago (no disponible en CoinMetrics free).
-  Si se consigue acceso a datos historicos, podria ser senal de venta relevante.
 - **Ajuste parametros DCA-out para proximo ciclo**: cuando BTC supere ATH $124k con claridad,
   reconsiderar si el nivel de inicio ($80k) sigue siendo el optimo o conviene subirlo.
+- **CDD real**: Coin Days Destroyed requiere datos de pago (no disponible en CoinMetrics free).
+  Si se consigue acceso a datos historicos, podria ser senal de venta relevante.
+- **Portfolio import CSV**: actualmente solo se pueden anadir trades manualmente uno a uno.
+  Podria anadirse un comando `portfolio import mi_trades.csv` para restaurar desde backup.
 
 ### Confianza de las senales implementadas (resumen honesto)
 - Rebalanceo anual: ALTA (N=9 independientes, efecto en Calmar consistente)
@@ -298,6 +342,7 @@ Los numeros de research4 (IRPF) son los definitivos tras la correccion EUR/USD.
 ## Sistema en produccion
 
 GitHub Actions ejecuta check cada 4h automaticamente (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC).
+GitHub Actions envia digest semanal cada domingo a las 09:00 UTC.
 Secret DISCORD_WEBHOOK_URL configurado en el repo de GitHub.
 No requiere ordenador encendido.
 
@@ -313,19 +358,29 @@ py -3.12 -m venv .venv
 ## Comandos utiles
 
 ```bash
-python main.py check                  # Check rapido de senales
+python main.py check                  # Check rapido de senales (BTC/ETH/MVRV/funding/halving)
 python main.py check --notify         # Check + enviar Discord si hay alerta
-python main.py dashboard              # Dashboard web
+python main.py digest                 # Preview del digest semanal
+python main.py digest --notify        # Enviar digest semanal a Discord (cooldown 6d)
+python main.py dashboard              # Dashboard web localhost:8000
+python main.py rebalance --btc X --eth X --other X  # Rebalanceo anual (X = valor en EUR)
+
+# Portfolio tracker (datos solo locales, nunca en CI)
+python main.py portfolio add-buy  --asset BTC --units 0.001 --price-eur 45000 --source sparplan
+python main.py portfolio add-sell --asset BTC --units 0.0003 --price-eur 87000 --source dca_out
+python main.py portfolio show         # P&L FIFO + IRPF estimado + proximo DCA-out
+python main.py portfolio history      # Lista de operaciones
+python main.py portfolio export       # CSV backup (redirigir a archivo)
+
 python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 python main.py sentiment --since 2020-01-01
-python main.py rebalance --btc X --eth X --other X  # Rebalanceo anual (X = valor en EUR de cada bloque)
 ```
 
 ## Fuentes de datos (todas publicas, sin API key)
 
-- Precios BTC/ETH: CoinGecko API
+- Precios BTC/ETH: CoinGecko API (USD + EUR + 24h_change en una sola llamada)
 - Funding rate BTC: OKX API (Binance y Bybit bloquean IPs de GitHub)
-- ETH MVRV: CoinMetrics community API
+- ETH MVRV + BTC MVRV: CoinMetrics community API (assets=eth o assets=btc, mismo endpoint)
 - Fear & Greed: alternative.me API
 
 ## Convenciones
@@ -333,3 +388,6 @@ python main.py rebalance --btc X --eth X --other X  # Rebalanceo anual (X = valo
 - Conventional commits (hay hook configurado): feat:, fix:, etc.
 - Tests: pytest, 41 tests actualmente
 - NO usar caracteres unicode especiales en Python (Windows cp1252)
+- Objetos SQLAlchemy se expiran al cerrar sesion (expire_on_commit=True por defecto).
+  Convertir a dicts dentro del `with get_session()` antes de usar fuera del bloque.
+  Ver pattern en `cmd_portfolio` de main.py (`_row_to_dict`).

@@ -170,6 +170,24 @@ def _fetch_eth_mvrv() -> float | None:
         return None
 
 
+def _fetch_btc_mvrv() -> float | None:
+    """Fetch BTC MVRV from CoinMetrics (informativo, no es senial de venta)."""
+    try:
+        resp = requests.get(
+            "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics",
+            params={"assets": "btc", "metrics": "CapMVRVCur", "frequency": "1d", "page_size": "1", "paging_from": "end"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if data:
+            return float(data[0].get("CapMVRVCur", 0))
+        return None
+    except Exception as e:
+        logger.error("Failed to fetch BTC MVRV: %s", e)
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Alert deduplication
 # ---------------------------------------------------------------------------
@@ -360,3 +378,137 @@ def check_and_alert() -> list[dict]:
         logger.info("No alerts triggered. All metrics within normal ranges.")
 
     return triggered
+
+
+# ---------------------------------------------------------------------------
+# Weekly digest
+# ---------------------------------------------------------------------------
+
+def _halving_cycle_text() -> str:
+    """Return a short description of the current halving cycle phase.
+    Research3: fase mas debil meses 18-24 post-halving (30d=-7.2% vs baseline).
+    """
+    from datetime import date as _date
+    last_halving = _date(2024, 4, 19)
+    today = _date.today()
+    months_elapsed = (today - last_halving).days / 30.44
+    if 18 <= months_elapsed < 24:
+        return "Mes {:.0f}/48 desde halving abr-2024 -- ZONA DE RIESGO (meses 18-24: -7.2% a 30d vs baseline)".format(months_elapsed)
+    return "Mes {:.0f}/48 desde halving abr-2024 -- fuera de zona de riesgo".format(months_elapsed)
+
+
+def send_weekly_digest() -> bool:
+    """
+    Send a weekly summary digest to Discord.
+    Includes: prices, on-chain indicators, halving phase, and last-7d alert summary.
+    Uses 6-day cooldown to prevent duplicate sends.
+    Returns True if message was sent.
+    """
+    init_db()
+
+    with get_session() as session:
+        if _already_alerted(session, "weekly_digest", hours=144):  # 6 dias
+            logger.info("Weekly digest already sent within last 6 days, skipping.")
+            return False
+
+    prices = _fetch_prices()
+    funding_rate = _fetch_funding_rate()
+    eth_mvrv = _fetch_eth_mvrv()
+    btc_mvrv = _fetch_btc_mvrv()
+
+    btc_price = prices.get("btc_price")
+    btc_price_eur = prices.get("btc_price_eur")
+    btc_change = prices.get("btc_change")
+    eth_price = prices.get("eth_price")
+    eth_price_eur = prices.get("eth_price_eur")
+
+    # Alerts from last 7 days
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).replace(tzinfo=None)
+    with get_session() as session:
+        recent_alerts = session.execute(
+            select(AlertLog)
+            .where(AlertLog.timestamp >= week_ago)
+            .where(AlertLog.alert_type != "weekly_digest")
+            .order_by(AlertLog.timestamp.desc())
+        ).scalars().all()
+
+    fields = []
+
+    # Block 1: Precios
+    btc_str = "N/A"
+    if btc_price:
+        change_str = "{:+.1f}%".format(btc_change) if btc_change is not None else ""
+        btc_str = "${:,.0f}".format(btc_price)
+        if btc_price_eur:
+            btc_str += " / {:,.0f} EUR".format(btc_price_eur)
+        if change_str:
+            btc_str += " ({})".format(change_str)
+    fields.append({"name": "BTC", "value": btc_str, "inline": True})
+
+    eth_str = "N/A"
+    if eth_price:
+        eth_str = "${:,.0f}".format(eth_price)
+        if eth_price_eur:
+            eth_str += " / {:,.0f} EUR".format(eth_price_eur)
+    fields.append({"name": "ETH", "value": eth_str, "inline": True})
+
+    fields.append({"name": "\u200b", "value": "\u200b", "inline": True})  # spacer
+
+    # Block 2: Indicadores on-chain
+    eth_mvrv_str = "{:.3f}".format(eth_mvrv) if eth_mvrv is not None else "N/A"
+    if eth_mvrv is not None:
+        if eth_mvrv < 0.8:
+            eth_mvrv_str += " -- INFRAVALORADO (zona compra)"
+        elif eth_mvrv < 1.0:
+            eth_mvrv_str += " -- bajo valor realizado"
+        elif eth_mvrv < 2.0:
+            eth_mvrv_str += " -- rango normal"
+        else:
+            eth_mvrv_str += " -- zona caliente"
+    fields.append({"name": "ETH MVRV", "value": eth_mvrv_str, "inline": True})
+
+    btc_mvrv_str = "{:.3f}".format(btc_mvrv) if btc_mvrv is not None else "N/A"
+    if btc_mvrv is not None:
+        if btc_mvrv < 1.0:
+            btc_mvrv_str += " -- bajo valor realizado"
+        elif btc_mvrv < 2.0:
+            btc_mvrv_str += " -- rango normal"
+        elif btc_mvrv < 3.0:
+            btc_mvrv_str += " -- zona caliente"
+        else:
+            btc_mvrv_str += " -- muy caliente (historicamente raro)"
+    fields.append({"name": "BTC MVRV (info)", "value": btc_mvrv_str, "inline": True})
+
+    funding_str = "{:.4f}%".format(funding_rate * 100) if funding_rate is not None else "N/A"
+    fields.append({"name": "BTC Funding", "value": funding_str, "inline": True})
+
+    # Block 3: Halving cycle
+    fields.append({"name": "Ciclo Halving", "value": _halving_cycle_text(), "inline": False})
+
+    # Block 4: Alertas de la semana
+    if recent_alerts:
+        alert_lines = []
+        for a in recent_alerts[:8]:  # max 8 para no exceder limite Discord
+            ts = a.timestamp.strftime("%d/%m %H:%M") if a.timestamp else "?"
+            alert_lines.append("{} `{}` {}".format(ts, a.alert_type, a.severity.upper()))
+        alerts_text = "\n".join(alert_lines)
+    else:
+        alerts_text = "Semana sin seniales -- Sparplan corriendo con normalidad."
+    fields.append({"name": "Alertas ultimos 7 dias ({:d})".format(len(recent_alerts)), "value": alerts_text, "inline": False})
+
+    payload = {
+        "embeds": [{
+            "title": "Resumen Semanal CryptoTrader",
+            "description": "Estado del mercado y seniales de la semana.",
+            "color": 0x3B82F6,
+            "fields": fields,
+            "footer": {"text": "CryptoTrader Advisor -- Domingo"},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }]
+    }
+
+    sent = send_discord_message(payload)
+    with get_session() as session:
+        _log_alert(session, "weekly_digest", "blue", btc_price, eth_price, eth_mvrv, sent)
+    logger.info("Weekly digest sent: %s", sent)
+    return sent

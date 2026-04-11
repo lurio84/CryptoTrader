@@ -1,10 +1,9 @@
 """FastAPI dashboard for CryptoTrader Advisor."""
 
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, date, timezone, timedelta
 from pathlib import Path
 
-import ccxt
 import requests
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
@@ -22,23 +21,35 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
 def _fetch_prices() -> dict:
-    """Fetch current BTC and ETH prices from exchange."""
+    """Fetch current BTC and ETH prices from CoinGecko (USD + EUR + 24h change)."""
     try:
-        exchange = ccxt.binance({"enableRateLimit": True})
-        btc_ticker = exchange.fetch_ticker("BTC/USDT")
-        eth_ticker = exchange.fetch_ticker("ETH/USDT")
+        resp = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={
+                "ids": "bitcoin,ethereum",
+                "vs_currencies": "usd,eur",
+                "include_24hr_change": "true",
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
         return {
-            "btc_price": btc_ticker.get("last", 0),
-            "btc_change_24h": btc_ticker.get("percentage", 0),
-            "eth_price": eth_ticker.get("last", 0),
-            "eth_change_24h": eth_ticker.get("percentage", 0),
+            "btc_price": data["bitcoin"]["usd"],
+            "btc_price_eur": data["bitcoin"]["eur"],
+            "btc_change_24h": data["bitcoin"]["usd_24h_change"],
+            "eth_price": data["ethereum"]["usd"],
+            "eth_price_eur": data["ethereum"]["eur"],
+            "eth_change_24h": data["ethereum"]["usd_24h_change"],
         }
     except Exception as e:
-        logger.error("Failed to fetch prices: %s", e)
+        logger.error("Failed to fetch prices from CoinGecko: %s", e)
         return {
             "btc_price": None,
+            "btc_price_eur": None,
             "btc_change_24h": None,
             "eth_price": None,
+            "eth_price_eur": None,
             "eth_change_24h": None,
         }
 
@@ -83,6 +94,55 @@ def _fetch_eth_mvrv() -> float | None:
     except Exception as e:
         logger.error("Failed to fetch ETH MVRV: %s", e)
         return None
+
+
+def _fetch_btc_mvrv() -> float | None:
+    """Fetch BTC MVRV from CoinMetrics community API (informativo, no es senal de venta)."""
+    try:
+        resp = requests.get(
+            "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics",
+            params={
+                "assets": "btc",
+                "metrics": "CapMVRVCur",
+                "frequency": "1d",
+                "page_size": "1",
+                "paging_from": "end",
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        if data:
+            return float(data[0].get("CapMVRVCur", 0))
+        return None
+    except Exception as e:
+        logger.error("Failed to fetch BTC MVRV: %s", e)
+        return None
+
+
+_LAST_HALVING = date(2024, 4, 19)
+_CYCLE_DAYS = 48 * 30.44   # ~4 anios en dias
+# Research3: fase mas debil meses 18-24 post-halving (30d=-7.2% vs baseline)
+# Halving abril 2024 -> riesgo: octubre 2025 - abril 2026
+_RISK_ZONE_START_MONTHS = 18
+_RISK_ZONE_END_MONTHS = 24
+
+
+def _get_halving_cycle() -> dict:
+    """Return current halving cycle phase info."""
+    today = date.today()
+    days_elapsed = (today - _LAST_HALVING).days
+    months_elapsed = days_elapsed / 30.44
+    cycle_pct = min(days_elapsed / _CYCLE_DAYS * 100, 100)
+    in_risk_zone = _RISK_ZONE_START_MONTHS <= months_elapsed < _RISK_ZONE_END_MONTHS
+    next_halving_year = 2028
+    return {
+        "months_elapsed": round(months_elapsed, 1),
+        "cycle_pct": round(cycle_pct, 1),
+        "in_risk_zone": in_risk_zone,
+        "next_halving_year": next_halving_year,
+        "halving_date": _LAST_HALVING.strftime("%b %Y"),
+    }
 
 
 def _get_latest_funding_rate() -> float | None:
@@ -203,22 +263,27 @@ def api_status():
     """JSON endpoint for current status - fetches all data in parallel."""
     from concurrent.futures import ThreadPoolExecutor
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=5) as pool:
         f_prices = pool.submit(_fetch_prices)
         f_fg = pool.submit(_fetch_fear_greed)
-        f_mvrv = pool.submit(_fetch_eth_mvrv)
+        f_eth_mvrv = pool.submit(_fetch_eth_mvrv)
+        f_btc_mvrv = pool.submit(_fetch_btc_mvrv)
         f_funding = pool.submit(_get_latest_funding_rate)
 
     prices = f_prices.result()
     fg = f_fg.result()
-    mvrv = f_mvrv.result()
+    eth_mvrv = f_eth_mvrv.result()
+    btc_mvrv = f_btc_mvrv.result()
     funding_rate = f_funding.result()
-    alerts = _evaluate_alerts(prices, funding_rate, mvrv)
+    halving = _get_halving_cycle()
+    alerts = _evaluate_alerts(prices, funding_rate, eth_mvrv)
 
     return {
         "prices": prices,
         "fear_greed": fg,
-        "mvrv": mvrv,
+        "eth_mvrv": eth_mvrv,
+        "btc_mvrv": btc_mvrv,
         "funding_rate": funding_rate,
+        "halving": halving,
         "alerts": alerts,
     }

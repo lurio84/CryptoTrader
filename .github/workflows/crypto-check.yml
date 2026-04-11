@@ -4,6 +4,8 @@ on:
   schedule:
     # Every 4 hours: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC
     - cron: '0 */4 * * *'
+    # Weekly digest: every Sunday at 09:00 UTC
+    - cron: '0 9 * * 0'
   workflow_dispatch: # Manual trigger from GitHub UI
 
 jobs:
@@ -35,3 +37,9 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python main.py check --notify
+
+      - name: Send weekly digest (Sundays only)
+        if: github.event.schedule == '0 9 * * 0' || github.event_name == 'workflow_dispatch'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python main.py digest --notify

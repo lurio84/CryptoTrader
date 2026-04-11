@@ -116,3 +116,28 @@ class AlertLog(Base):
 
     def __repr__(self) -> str:
         return f"<AlertLog {self.alert_type} {self.severity} {self.timestamp}>"
+
+
+class UserTrade(Base):
+    """Personal trade register for FIFO cost basis and IRPF tracking.
+
+    Stored locally only - never committed to GitHub or synced to CI.
+    Use 'python main.py portfolio export' to backup as CSV.
+    """
+
+    __tablename__ = "user_trade"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(DateTime, nullable=False)            # Date of the trade
+    asset = Column(String, nullable=False)             # "BTC" or "ETH"
+    side = Column(String, nullable=False)              # "buy" or "sell"
+    units = Column(Float, nullable=False)              # Units of crypto
+    price_eur = Column(Float, nullable=False)          # Price in EUR at time of trade
+    fee_eur = Column(Float, nullable=False, default=0.0)  # Fee in EUR (0 for Sparplan, 1 for manual TR)
+    source = Column(String, nullable=False, default="manual")
+    # Source options: sparplan | crash_buy | mvrv_buy | dca_out | rebalance | manual
+    notes = Column(String, nullable=True)              # Free-form comment
+    created_at = Column(DateTime, nullable=False, default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<UserTrade {self.side} {self.units:.6f} {self.asset} @ {self.price_eur:.2f} EUR ({self.source})>"

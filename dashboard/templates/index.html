@@ -14,7 +14,7 @@
             min-height: 100vh;
         }
 
-        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+        .container { max-width: 1300px; margin: 0 auto; padding: 24px; }
 
         /* Header */
         .header {
@@ -93,11 +93,14 @@
         /* Metric Cards Grid */
         .metrics-grid {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(6, 1fr);
             gap: 16px;
-            margin-bottom: 24px;
+            margin-bottom: 16px;
         }
-        @media (max-width: 900px) {
+        @media (max-width: 1100px) {
+            .metrics-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 650px) {
             .metrics-grid { grid-template-columns: repeat(2, 1fr); }
         }
         .metric-card {
@@ -117,7 +120,7 @@
             margin-bottom: 12px;
         }
         .metric-value {
-            font-size: 28px;
+            font-size: 26px;
             font-weight: 700;
             letter-spacing: -1px;
             line-height: 1;
@@ -131,6 +134,7 @@
         .down { color: #ef4444; }
         .muted { color: #71717a; }
         .warn { color: #f59e0b; }
+        .hot { color: #f97316; }
 
         /* Threshold indicators */
         .threshold-bar {
@@ -149,7 +153,66 @@
         .fill-green { background: linear-gradient(90deg, #22c55e, #16a34a); }
         .fill-red { background: linear-gradient(90deg, #ef4444, #dc2626); }
         .fill-yellow { background: linear-gradient(90deg, #f59e0b, #d97706); }
+        .fill-orange { background: linear-gradient(90deg, #f97316, #ea580c); }
         .fill-blue { background: linear-gradient(90deg, #3b82f6, #2563eb); }
+
+        /* Halving cycle widget */
+        .halving-card {
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+        .halving-card.risk-zone {
+            border-color: #92400e;
+            background: linear-gradient(135deg, #1a0f00 0%, #18181b 100%);
+        }
+        .halving-info { flex: 1; }
+        .halving-title {
+            font-size: 12px;
+            font-weight: 500;
+            color: #71717a;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 6px;
+        }
+        .halving-phase {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .halving-desc { font-size: 13px; color: #a1a1aa; }
+        .halving-bar-container { flex: 2; }
+        .halving-bar-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #71717a;
+            margin-bottom: 6px;
+        }
+        .halving-bar-track {
+            height: 8px;
+            background: #27272a;
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+        .halving-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s;
+        }
+        .halving-risk-marker {
+            position: absolute;
+            top: 0; bottom: 0;
+            width: 2px;
+            background: #f59e0b;
+            opacity: 0.6;
+        }
 
         /* Two Column Layout */
         .two-col {
@@ -314,7 +377,7 @@
             </div>
         </div>
 
-        <!-- Metric Cards -->
+        <!-- Metric Cards (6 columns) -->
         <div class="metrics-grid">
             <div class="metric-card">
                 <div class="metric-label">Bitcoin</div>
@@ -331,7 +394,7 @@
             </div>
 
             <div class="metric-card">
-                <div class="metric-label">Fear & Greed</div>
+                <div class="metric-label">Fear &amp; Greed</div>
                 <div class="metric-value muted" id="fg-value">...</div>
                 <div class="metric-sub muted" id="fg-label">loading</div>
                 <div class="threshold-bar"><div class="threshold-fill fill-blue" id="fg-bar" style="width: 0%"></div></div>
@@ -339,16 +402,49 @@
 
             <div class="metric-card">
                 <div class="metric-label">BTC Funding Rate</div>
-                <div class="metric-value" id="funding-value" style="font-size: 22px;">...</div>
+                <div class="metric-value" id="funding-value" style="font-size: 20px;">...</div>
                 <div class="metric-sub muted">8h rate</div>
-                <div class="threshold-bar"><div class="threshold-fill fill-blue" style="width: 50%"></div></div>
+                <div class="threshold-bar"><div class="threshold-fill fill-blue" id="funding-bar" style="width: 50%"></div></div>
             </div>
 
             <div class="metric-card">
                 <div class="metric-label">ETH MVRV</div>
-                <div class="metric-value muted" id="mvrv-value">...</div>
-                <div class="metric-sub muted">Market / Realized Value</div>
-                <div class="threshold-bar"><div class="threshold-fill fill-blue" id="mvrv-bar" style="width: 0%"></div></div>
+                <div class="metric-value muted" id="eth-mvrv-value">...</div>
+                <div class="metric-sub muted" id="eth-mvrv-sub">Market / Realized</div>
+                <div class="threshold-bar"><div class="threshold-fill fill-blue" id="eth-mvrv-bar" style="width: 0%"></div></div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-label">BTC MVRV <span style="font-size:10px;color:#52525b">(info)</span></div>
+                <div class="metric-value muted" id="btc-mvrv-value">...</div>
+                <div class="metric-sub muted" id="btc-mvrv-sub">Market / Realized</div>
+                <div class="threshold-bar"><div class="threshold-fill fill-blue" id="btc-mvrv-bar" style="width: 0%"></div></div>
+            </div>
+        </div>
+
+        <!-- Halving Cycle Widget -->
+        <div class="halving-card" id="halving-card">
+            <div class="halving-info">
+                <div class="halving-title">Ciclo Halving Bitcoin</div>
+                <div class="halving-phase" id="halving-phase">Cargando...</div>
+                <div class="halving-desc" id="halving-desc"></div>
+            </div>
+            <div class="halving-bar-container">
+                <div class="halving-bar-label">
+                    <span id="halving-bar-left">Halving ...</span>
+                    <span id="halving-bar-right">Proximo ~2028</span>
+                </div>
+                <div class="halving-bar-track">
+                    <div class="halving-bar-fill fill-blue" id="halving-bar-fill" style="width: 0%"></div>
+                    <!-- Zona de riesgo: meses 18-24 = 37.5%-50% del ciclo (research3) -->
+                    <div class="halving-risk-marker" style="left: 37.5%"></div>
+                    <div class="halving-risk-marker" style="left: 50%"></div>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:#52525b;margin-top:4px">
+                    <span>Mes 0</span>
+                    <span style="color:#f59e0b">Zona riesgo (M18-24)</span>
+                    <span>Mes 48</span>
+                </div>
             </div>
         </div>
 
@@ -373,7 +469,7 @@
                 <div class="plan-item">
                     <div class="plan-asset">
                         <div class="plan-icon icon-sp">SPX</div>
-                        <div class="plan-name">S&P 500 + Others <small>Stocks</small></div>
+                        <div class="plan-name">S&amp;P 500 + Others <small>Stocks</small></div>
                     </div>
                     <div class="plan-amount">25 EUR/week</div>
                 </div>
@@ -383,19 +479,19 @@
                 <h3>Alert Thresholds</h3>
                 <div class="signal-thresholds">
                     <div class="threshold-item">
-                        <span>BTC Crash > 15% (24h)</span>
+                        <span>BTC Crash &gt; 15% (24h)</span>
                         <span class="threshold-status status-ok" id="th-crash">...</span>
                     </div>
                     <div class="threshold-item">
-                        <span>BTC Funding < -0.01%</span>
+                        <span>BTC Funding &lt; -0.01%</span>
                         <span class="threshold-status status-ok" id="th-funding">...</span>
                     </div>
                     <div class="threshold-item">
-                        <span>ETH MVRV < 1.0</span>
+                        <span>ETH MVRV &lt; 1.0</span>
                         <span class="threshold-status status-ok" id="th-mvrv1">...</span>
                     </div>
                     <div class="threshold-item">
-                        <span>ETH MVRV < 0.8</span>
+                        <span>ETH MVRV &lt; 0.8</span>
                         <span class="threshold-status status-ok" id="th-mvrv08">...</span>
                     </div>
                 </div>
@@ -446,6 +542,27 @@
         return v.toLocaleString("en-US", {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
     }
 
+    function mvrvClass(v) {
+        if (v < 1.0) return "up";
+        if (v < 2.0) return "muted";
+        if (v < 3.0) return "warn";
+        return "hot";
+    }
+
+    function mvrvFill(v) {
+        if (v < 1.0) return "fill-green";
+        if (v < 2.0) return "fill-blue";
+        if (v < 3.0) return "fill-yellow";
+        return "fill-orange";
+    }
+
+    function mvrvLabel(v, asset) {
+        if (v < 1.0) return asset + " infravalorado";
+        if (v < 2.0) return asset + " rango normal";
+        if (v < 3.0) return asset + " zona caliente";
+        return asset + " muy caliente (historicamente raro)";
+    }
+
     function updateDashboard() {
         fetch("/api/status")
             .then(r => r.json())
@@ -453,24 +570,22 @@
                 var p = d.prices;
                 var fg = d.fear_greed;
 
-                // BTC
-                var btcEl = document.getElementById("btc-price");
-                var btcChEl = document.getElementById("btc-change");
-                if (btcEl && p.btc_price) {
-                    btcEl.textContent = "$" + fmt(p.btc_price, 2);
+                // BTC price
+                if (p && p.btc_price) {
                     var ch = p.btc_change_24h;
+                    document.getElementById("btc-price").textContent = "$" + fmt(p.btc_price, 0);
+                    var btcChEl = document.getElementById("btc-change");
                     btcChEl.textContent = (ch >= 0 ? "+" : "") + fmt(ch, 2) + "% 24h";
                     btcChEl.className = "metric-sub " + (ch >= 0 ? "up" : "down");
                     document.getElementById("btc-bar").className = "threshold-fill " + (ch >= 0 ? "fill-green" : "fill-red");
                     document.getElementById("btc-bar").style.width = Math.min(100, Math.abs(ch) * 5) + "%";
                 }
 
-                // ETH
-                var ethEl = document.getElementById("eth-price");
-                var ethChEl = document.getElementById("eth-change");
-                if (ethEl && p.eth_price) {
-                    ethEl.textContent = "$" + fmt(p.eth_price, 2);
+                // ETH price
+                if (p && p.eth_price) {
                     var ch2 = p.eth_change_24h;
+                    document.getElementById("eth-price").textContent = "$" + fmt(p.eth_price, 0);
+                    var ethChEl = document.getElementById("eth-change");
                     ethChEl.textContent = (ch2 >= 0 ? "+" : "") + fmt(ch2, 2) + "% 24h";
                     ethChEl.className = "metric-sub " + (ch2 >= 0 ? "up" : "down");
                     document.getElementById("eth-bar").className = "threshold-fill " + (ch2 >= 0 ? "fill-green" : "fill-red");
@@ -478,30 +593,71 @@
                 }
 
                 // F&G
-                var fgEl = document.getElementById("fg-value");
-                var fgLbl = document.getElementById("fg-label");
-                if (fgEl && fg.fear_greed_value !== null) {
+                if (fg && fg.fear_greed_value !== null) {
                     var v = fg.fear_greed_value;
+                    var fgEl = document.getElementById("fg-value");
                     fgEl.textContent = v;
                     fgEl.className = "metric-value " + (v <= 25 ? "down" : v >= 75 ? "up" : "warn");
-                    fgLbl.textContent = fg.fear_greed_label;
+                    document.getElementById("fg-label").textContent = fg.fear_greed_label;
                     document.getElementById("fg-bar").style.width = v + "%";
                     document.getElementById("fg-bar").className = "threshold-fill " + (v <= 25 ? "fill-red" : v >= 75 ? "fill-green" : "fill-yellow");
                 }
 
-                // Funding
-                var frEl = document.getElementById("funding-value");
-                if (frEl && d.funding_rate !== null) {
-                    frEl.textContent = (d.funding_rate * 100).toFixed(4) + "%";
+                // Funding rate
+                if (d.funding_rate !== null && d.funding_rate !== undefined) {
+                    var fr = d.funding_rate;
+                    document.getElementById("funding-value").textContent = (fr * 100).toFixed(4) + "%";
+                    document.getElementById("funding-value").className = "metric-value " + (fr < -0.0001 ? "down" : fr < 0 ? "warn" : "muted");
+                    document.getElementById("funding-bar").className = "threshold-fill " + (fr < -0.0001 ? "fill-red" : "fill-blue");
+                    document.getElementById("funding-bar").style.width = "50%";
                 }
 
-                // MVRV
-                var mvEl = document.getElementById("mvrv-value");
-                if (mvEl && d.mvrv !== null) {
-                    mvEl.textContent = d.mvrv.toFixed(3);
-                    mvEl.className = "metric-value " + (d.mvrv < 0.8 ? "down" : d.mvrv < 1.0 ? "warn" : "up");
-                    document.getElementById("mvrv-bar").style.width = Math.min(100, d.mvrv * 40) + "%";
-                    document.getElementById("mvrv-bar").className = "threshold-fill " + (d.mvrv < 0.8 ? "fill-red" : d.mvrv < 1.0 ? "fill-yellow" : "fill-green");
+                // ETH MVRV
+                if (d.eth_mvrv !== null && d.eth_mvrv !== undefined) {
+                    var em = d.eth_mvrv;
+                    document.getElementById("eth-mvrv-value").textContent = em.toFixed(3);
+                    document.getElementById("eth-mvrv-value").className = "metric-value " + mvrvClass(em);
+                    document.getElementById("eth-mvrv-sub").textContent = mvrvLabel(em, "ETH");
+                    document.getElementById("eth-mvrv-bar").style.width = Math.min(100, em * 40) + "%";
+                    document.getElementById("eth-mvrv-bar").className = "threshold-fill " + mvrvFill(em);
+                }
+
+                // BTC MVRV
+                if (d.btc_mvrv !== null && d.btc_mvrv !== undefined) {
+                    var bm = d.btc_mvrv;
+                    document.getElementById("btc-mvrv-value").textContent = bm.toFixed(3);
+                    document.getElementById("btc-mvrv-value").className = "metric-value " + mvrvClass(bm);
+                    document.getElementById("btc-mvrv-sub").textContent = mvrvLabel(bm, "BTC");
+                    document.getElementById("btc-mvrv-bar").style.width = Math.min(100, bm * 30) + "%";
+                    document.getElementById("btc-mvrv-bar").className = "threshold-fill " + mvrvFill(bm);
+                }
+
+                // Halving cycle
+                if (d.halving) {
+                    var h = d.halving;
+                    var card = document.getElementById("halving-card");
+                    var phaseEl = document.getElementById("halving-phase");
+                    var descEl = document.getElementById("halving-desc");
+                    phaseEl.textContent = "Mes " + h.months_elapsed.toFixed(0) + " / 48 desde halving " + h.halving_date;
+                    document.getElementById("halving-bar-left").textContent = "Halving " + h.halving_date;
+                    document.getElementById("halving-bar-fill").style.width = h.cycle_pct + "%";
+
+                    if (h.in_risk_zone) {
+                        card.className = "halving-card risk-zone";
+                        phaseEl.className = "halving-phase warn";
+                        document.getElementById("halving-bar-fill").className = "halving-bar-fill fill-yellow";
+                        descEl.textContent = "Zona de menor retorno historico (meses 12-18): -7.2% a 30d vs baseline. Informativo, no senial de venta.";
+                    } else if (h.months_elapsed < 18) {
+                        card.className = "halving-card";
+                        phaseEl.className = "halving-phase up";
+                        document.getElementById("halving-bar-fill").className = "halving-bar-fill fill-green";
+                        descEl.textContent = "Fase de acumulacion post-halving. Historicamente la fase mas alcista del ciclo.";
+                    } else {
+                        card.className = "halving-card";
+                        phaseEl.className = "halving-phase muted";
+                        document.getElementById("halving-bar-fill").className = "halving-bar-fill fill-blue";
+                        descEl.textContent = "Fase tardía del ciclo. N=2 ciclos, informativo unicamente.";
+                    }
                 }
 
                 // Alert banner
@@ -531,22 +687,22 @@
                 }
 
                 // Threshold statuses
-                if (p.btc_change_24h !== null) {
+                if (p && p.btc_change_24h !== null) {
                     var s1 = document.getElementById("th-crash");
                     if (p.btc_change_24h <= -15) { s1.textContent = "ACTIVE"; s1.className = "threshold-status status-active"; }
                     else if (p.btc_change_24h <= -10) { s1.textContent = "WATCH"; s1.className = "threshold-status status-watch"; }
                     else { s1.textContent = "OK"; s1.className = "threshold-status status-ok"; }
                 }
-                if (d.funding_rate !== null) {
+                if (d.funding_rate !== null && d.funding_rate !== undefined) {
                     var s2 = document.getElementById("th-funding");
                     if (d.funding_rate < -0.0001) { s2.textContent = "ACTIVE"; s2.className = "threshold-status status-active"; }
                     else { s2.textContent = "OK"; s2.className = "threshold-status status-ok"; }
                 }
-                if (d.mvrv !== null) {
+                if (d.eth_mvrv !== null && d.eth_mvrv !== undefined) {
                     var s3 = document.getElementById("th-mvrv1");
                     var s4 = document.getElementById("th-mvrv08");
-                    if (d.mvrv < 0.8) { s3.textContent = "ACTIVE"; s3.className = "threshold-status status-active"; s4.textContent = "ACTIVE"; s4.className = "threshold-status status-active"; }
-                    else if (d.mvrv < 1.0) { s3.textContent = "WATCH"; s3.className = "threshold-status status-watch"; s4.textContent = "OK"; s4.className = "threshold-status status-ok"; }
+                    if (d.eth_mvrv < 0.8) { s3.textContent = "ACTIVE"; s3.className = "threshold-status status-active"; s4.textContent = "ACTIVE"; s4.className = "threshold-status status-active"; }
+                    else if (d.eth_mvrv < 1.0) { s3.textContent = "WATCH"; s3.className = "threshold-status status-watch"; s4.textContent = "OK"; s4.className = "threshold-status status-ok"; }
                     else { s3.textContent = "OK"; s3.className = "threshold-status status-ok"; s4.textContent = "OK"; s4.className = "threshold-status status-ok"; }
                 }
 

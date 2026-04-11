@@ -140,6 +140,24 @@ def cmd_dca_backtest(args: argparse.Namespace) -> None:
             print(f"    Avg mult:   {result.buy_log['multiplier'].mean():.2f}x")
 
 
+def _halving_cycle_info() -> dict:
+    """Return current halving cycle phase info.
+    Research3: fase mas debil es meses 18-24 post-halving (30d=-7.2% vs baseline).
+    Halving abril 2024 -> zona de riesgo: octubre 2025 - abril 2026.
+    """
+    from datetime import date as _date
+    last_halving = _date(2024, 4, 19)
+    today = _date.today()
+    days_elapsed = (today - last_halving).days
+    months_elapsed = days_elapsed / 30.44
+    in_risk_zone = 18 <= months_elapsed < 24
+    return {
+        "months_elapsed": months_elapsed,
+        "in_risk_zone": in_risk_zone,
+        "halving_date": "abril 2024",
+    }
+
+
 def cmd_check(args: argparse.Namespace) -> None:
     """Quick check: fetch all signals and show current status."""
     init_db()
@@ -182,6 +200,16 @@ def cmd_check(args: argparse.Namespace) -> None:
     except Exception:
         mvrv = None
 
+    # BTC MVRV (informativo)
+    try:
+        mv_btc = req.get("https://community-api.coinmetrics.io/v4/timeseries/asset-metrics",
+                          params={"assets": "btc", "metrics": "CapMVRVCur",
+                                  "frequency": "1d", "page_size": "1",
+                                  "paging_from": "end"}, timeout=10).json()
+        btc_mvrv = float(mv_btc["data"][0]["CapMVRVCur"])
+    except Exception:
+        btc_mvrv = None
+
     # Funding rate (live from OKX - no geo-restrictions from GitHub)
     try:
         fr = req.get(
@@ -209,6 +237,18 @@ def cmd_check(args: argparse.Namespace) -> None:
         print(f"    Funding: {funding*100:.4f}%")
     if mvrv is not None:
         print(f"    ETH MVRV: {mvrv:.3f}")
+    if btc_mvrv is not None:
+        print(f"    BTC MVRV: {btc_mvrv:.3f}  (informativo, no es senial de venta)")
+
+    # Halving cycle
+    hc = _halving_cycle_info()
+    print(f"\n  CICLO HALVING:")
+    print(f"    Mes {hc['months_elapsed']:.1f}/48 desde halving {hc['halving_date']}")
+    if hc["in_risk_zone"]:
+        print(f"    [WATCH] Zona de menor retorno historico (meses 18-24): -7.2% a 30d vs baseline")
+        print(f"            Informativo: continua el Sparplan normal, no vender por este motivo")
+    else:
+        print(f"    [OK] Fuera de zona de riesgo del ciclo")
 
     # Alerts
     print(f"\n  SIGNALS:")
@@ -274,6 +314,166 @@ def cmd_check(args: argparse.Namespace) -> None:
             print(f"\n  No alerts triggered.")
 
     print(f"\n{'='*55}")
+
+
+def cmd_portfolio(args: argparse.Namespace) -> None:
+    """Personal portfolio tracker with FIFO cost basis and IRPF estimation."""
+    init_db()
+    import requests as req
+    from datetime import datetime as _dt
+    from sqlalchemy import select as _select
+    from data.models import UserTrade
+    from data.portfolio import calculate_portfolio_status, trades_to_csv
+    from data.database import get_session
+
+    sub = args.portfolio_cmd
+
+    if sub == "add-buy" or sub == "add-sell":
+        side = "buy" if sub == "add-buy" else "sell"
+        trade_date = _dt.strptime(args.date, "%Y-%m-%d") if args.date else _dt.now()
+        trade = UserTrade(
+            date=trade_date,
+            asset=args.asset.upper(),
+            side=side,
+            units=args.units,
+            price_eur=args.price_eur,
+            fee_eur=args.fee_eur,
+            source=args.source,
+            notes=args.notes,
+        )
+        with get_session() as session:
+            session.add(trade)
+        total_eur = args.units * args.price_eur + args.fee_eur
+        print(f"Registered: {side.upper()} {args.units:.6f} {args.asset.upper()} @ {args.price_eur:.2f} EUR/unit = {total_eur:.2f} EUR total (fee: {args.fee_eur:.2f} EUR, source: {args.source})")
+        return
+
+    # Fetch current prices for show command
+    btc_price_eur = None
+    eth_price_eur = None
+    if sub in ("show", None):
+        try:
+            resp = req.get(
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={"ids": "bitcoin,ethereum", "vs_currencies": "eur"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            cg = resp.json()
+            btc_price_eur = cg["bitcoin"]["eur"]
+            eth_price_eur = cg["ethereum"]["eur"]
+        except Exception:
+            pass
+
+    def _row_to_dict(t: UserTrade) -> dict:
+        return {
+            "id": t.id, "date": t.date, "asset": t.asset, "side": t.side,
+            "units": t.units, "price_eur": t.price_eur, "fee_eur": t.fee_eur,
+            "source": t.source, "notes": t.notes,
+        }
+
+    with get_session() as session:
+        rows = session.execute(_select(UserTrade).order_by(UserTrade.date)).scalars().all()
+        all_trades = [_row_to_dict(t) for t in rows]
+
+    btc_trades = [t for t in all_trades if t["asset"] == "BTC"]
+    eth_trades = [t for t in all_trades if t["asset"] == "ETH"]
+
+    if sub == "export":
+        print(trades_to_csv(all_trades), end="")
+        return
+
+    if sub == "history":
+        if not all_trades:
+            print("No trades registered. Use 'portfolio add-buy' to add your first trade.")
+            return
+        print(f"{'Date':<12} {'Asset':<5} {'Side':<5} {'Units':>12} {'Price EUR':>11} {'Fee':>6} {'Source':<12} Notes")
+        print("-" * 80)
+        for t in sorted(all_trades, key=lambda x: x["date"]):
+            d = t["date"]
+            date_str = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)
+            print(f"{date_str:<12} {t['asset']:<5} {t['side']:<5} {t['units']:>12.6f} {t['price_eur']:>10.2f}E {t['fee_eur']:>5.2f}E {(t['source'] or ''):.<12} {t['notes'] or ''}")
+        return
+
+    # show (default)
+    print("PORTFOLIO PERSONAL")
+    print("=" * 55)
+
+    total_invested = 0.0
+    total_value = 0.0
+    total_unrealized = 0.0
+    total_irpf = 0.0
+
+    for asset, trades, price_eur, dca_base, dca_step in [
+        ("BTC", btc_trades, btc_price_eur, 80_000 / 1.10, 20_000 / 1.10),  # approx EUR from USD
+        ("ETH", eth_trades, eth_price_eur, 3_000 / 1.10, 1_000 / 1.10),
+    ]:
+        if not trades:
+            print(f"\n{asset}: sin operaciones registradas")
+            continue
+        if price_eur is None:
+            print(f"\n{asset}: no se pudo obtener precio actual (sin conexion)")
+            continue
+
+        s = calculate_portfolio_status(asset, trades, price_eur, dca_base, dca_step)
+        gain_sign = "+" if s["unrealized_gain_eur"] >= 0 else ""
+        print(f"\n{asset}: {s['units_held']:.6f} unidades ({s['buy_count']} compras, {s['sell_count']} ventas)")
+        print(f"  Coste medio FIFO: {s['avg_cost_eur']:>10,.2f} EUR/{asset}")
+        print(f"  Valor actual:     {s['current_price_eur']:>10,.2f} EUR/{asset}")
+        print(f"  Valor cartera:    {s['current_value_eur']:>10,.2f} EUR")
+        print(f"  Ganancia no real: {gain_sign}{s['unrealized_gain_eur']:>8,.2f} EUR ({gain_sign}{s['unrealized_pct']:.1f}%)")
+        if s["realized_gain_eur"] != 0:
+            print(f"  Ganancia real.:   {s['realized_gain_eur']:>10,.2f} EUR (ventas anteriores)")
+        print(f"  IRPF si vendieras:{s['irpf_estimate_eur']:>9,.0f} EUR (~{s['irpf_rate_pct']:.0f}% efectivo)")
+        if s["next_dca_level_eur"]:
+            pct_to_level = (s["next_dca_level_eur"] / price_eur - 1) * 100
+            print(f"  Proximo DCA-out:  {asset} a {s['next_dca_level_eur']:,.0f} EUR ({pct_to_level:+.1f}%) -> vende {s['next_dca_units']:.6f} {asset} ({s['next_dca_eur']:,.0f} EUR)")
+
+        total_invested += s["total_invested_eur"]
+        total_value += s["current_value_eur"]
+        total_unrealized += s["unrealized_gain_eur"]
+        total_irpf += s["irpf_estimate_eur"]
+
+    if btc_trades or eth_trades:
+        total_pct = (total_unrealized / (total_value - total_unrealized) * 100) if (total_value - total_unrealized) > 0 else 0.0
+        gain_sign = "+" if total_unrealized >= 0 else ""
+        print(f"\n{'='*55}")
+        print(f"TOTALES CRYPTO (BTC+ETH)")
+        print(f"  Total invertido:  {total_invested:>10,.2f} EUR")
+        print(f"  Valor actual:     {total_value:>10,.2f} EUR")
+        print(f"  Ganancia total:   {gain_sign}{total_unrealized:>8,.2f} EUR ({gain_sign}{total_pct:.1f}%)")
+        print(f"  IRPF estimado:    {total_irpf:>9,.0f} EUR (si vendieras todo hoy)")
+        print(f"{'='*55}")
+        print(f"  Backup: python main.py portfolio export > mis_trades.csv")
+    else:
+        print("\nNo hay operaciones registradas.")
+        print("Usa: python main.py portfolio add-buy --asset BTC --units 0.001 --price-eur 45000 --source sparplan")
+
+
+def cmd_digest(args: argparse.Namespace) -> None:
+    """Send weekly digest to Discord (or print preview without --notify)."""
+    init_db()
+    if args.notify:
+        from alerts.discord_bot import send_weekly_digest
+        sent = send_weekly_digest()
+        if sent:
+            print("Weekly digest sent to Discord.")
+        else:
+            print("Digest not sent (already sent within last 6 days, or webhook not configured).")
+    else:
+        # Preview mode: show what would be sent
+        from datetime import date as _date
+        last_halving = _date(2024, 4, 19)
+        months = (_date.today() - last_halving).days / 30.44
+        print("CryptoTrader - Digest Preview (use --notify to send)")
+        print("=" * 55)
+        print(f"  Ciclo halving: mes {months:.1f}/48 desde halving abr-2024")
+        in_risk = 18 <= months < 24
+        if in_risk:
+            print("  [WATCH] Zona de menor retorno historico (meses 18-24): -7.2% a 30d vs baseline")
+        else:
+            print("  [OK] Fuera de zona de riesgo del ciclo")
+        print("  Use --notify para enviar el embed completo a Discord.")
+        print("=" * 55)
 
 
 def cmd_dashboard(args: argparse.Namespace) -> None:
@@ -452,6 +652,46 @@ def main() -> None:
     p_reb.add_argument("--other", type=float, required=True,
                        help="Non-crypto total value in EUR (S&P500 + semiconductors + Realty Income + Uranium)")
 
+    # portfolio
+    p_port = subparsers.add_parser("portfolio", help="Personal portfolio tracker (FIFO / IRPF)")
+    port_sub = p_port.add_subparsers(dest="portfolio_cmd")
+
+    # portfolio add-buy
+    p_buy = port_sub.add_parser("add-buy", help="Register a buy trade")
+    p_buy.add_argument("--asset", required=True, choices=["BTC", "ETH", "btc", "eth"], help="BTC or ETH")
+    p_buy.add_argument("--units", type=float, required=True, help="Units bought (e.g. 0.001)")
+    p_buy.add_argument("--price-eur", type=float, required=True, help="Price in EUR per unit")
+    p_buy.add_argument("--date", help="Date YYYY-MM-DD (default: today)")
+    p_buy.add_argument("--fee-eur", type=float, default=0.0, help="Fee in EUR (default 0; use 1 for manual TR buy)")
+    p_buy.add_argument("--source", default="sparplan",
+                       choices=["sparplan", "crash_buy", "mvrv_buy", "dca_out", "rebalance", "manual"],
+                       help="Origin of the trade")
+    p_buy.add_argument("--notes", help="Optional comment")
+
+    # portfolio add-sell
+    p_sell = port_sub.add_parser("add-sell", help="Register a sell trade")
+    p_sell.add_argument("--asset", required=True, choices=["BTC", "ETH", "btc", "eth"])
+    p_sell.add_argument("--units", type=float, required=True, help="Units sold")
+    p_sell.add_argument("--price-eur", type=float, required=True, help="Price in EUR per unit")
+    p_sell.add_argument("--date", help="Date YYYY-MM-DD (default: today)")
+    p_sell.add_argument("--fee-eur", type=float, default=1.0, help="Fee in EUR (default 1 EUR flat in TR)")
+    p_sell.add_argument("--source", default="dca_out",
+                       choices=["sparplan", "crash_buy", "mvrv_buy", "dca_out", "rebalance", "manual"])
+    p_sell.add_argument("--notes", help="Optional comment")
+
+    # portfolio show
+    port_sub.add_parser("show", help="Show portfolio status with FIFO P&L and IRPF estimate")
+
+    # portfolio history
+    port_sub.add_parser("history", help="List all registered trades")
+
+    # portfolio export
+    port_sub.add_parser("export", help="Export all trades as CSV (for backup)")
+
+    # digest
+    p_digest = subparsers.add_parser("digest", help="Send weekly digest to Discord")
+    p_digest.add_argument("--notify", action="store_true", help="Actually send to Discord (default: preview only)")
+
     # info
     subparsers.add_parser("info", help="Show configuration")
 
@@ -464,6 +704,8 @@ def main() -> None:
         "sentiment": cmd_sentiment,
         "dca-backtest": cmd_dca_backtest,
         "check": cmd_check,
+        "portfolio": cmd_portfolio,
+        "digest": cmd_digest,
         "dashboard": cmd_dashboard,
         "monitor": cmd_monitor,
         "rebalance": cmd_rebalance,
