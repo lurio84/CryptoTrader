@@ -1,6 +1,6 @@
 import ccxt
 import pandas as pd
-from datetime import datetime, timezone
+from datetime import datetime
 from sqlalchemy import select
 
 from config.settings import settings

@@ -8,9 +8,41 @@ from sqlalchemy import select
 
 from config.settings import settings
 from data.database import init_db, get_session
+from data.market_data import fetch_prices, fetch_mvrv, fetch_funding_rate
 from data.models import AlertLog
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Alert thresholds and DCA-out parameters
+# Used by check_and_alert(), cmd_check() in main.py, and _evaluate_alerts()
+# in dashboard/app.py. Single source of truth for all signal logic.
+# ---------------------------------------------------------------------------
+
+BTC_CRASH_THRESHOLD    = -15      # % drop in 24h that triggers crash alert
+FUNDING_RATE_THRESHOLD = -0.0001  # -0.01% -- shorts paying longs (bullish)
+ETH_MVRV_CRITICAL      = 0.8     # ETH MVRV below this = strong buy (red)
+ETH_MVRV_LOW           = 1.0     # ETH MVRV below this = buy zone (yellow)
+
+# BTC DCA-out: sell 3% every $20k above $80k
+# Backtest: +62pp to +115pp vs hold after IRPF (research4.py, 2026-04)
+# Break-even: DCA-out wins if BTC ends cycle below ~$108k
+BTC_DCA_OUT_BASE = 80_000
+BTC_DCA_OUT_STEP = 20_000
+BTC_DCA_OUT_MAX  = 500_000
+BTC_DCA_OUT_PCT  = 3
+
+# ETH DCA-out: sell 3% every $1k above $3k (research4 analisis 4, 2026-04)
+ETH_DCA_OUT_BASE = 3_000
+ETH_DCA_OUT_STEP = 1_000
+ETH_DCA_OUT_MAX  = 50_000
+ETH_DCA_OUT_PCT  = 3
+
+# Cooldown hours per alert type (deduplication window)
+COOLDOWN_BTC_CRASH = 6
+COOLDOWN_FUNDING   = 24
+COOLDOWN_MVRV      = 168   # 7 days
+COOLDOWN_DCA_OUT   = 720   # 30 days
 
 
 # ---------------------------------------------------------------------------
@@ -102,93 +134,6 @@ def send_discord_message(payload: dict) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Data fetching
-# ---------------------------------------------------------------------------
-
-def _fetch_prices() -> dict:
-    """Fetch BTC and ETH prices (USD + EUR) from CoinGecko."""
-    try:
-        resp = requests.get(
-            "https://api.coingecko.com/api/v3/simple/price",
-            params={
-                "ids": "bitcoin,ethereum",
-                "vs_currencies": "usd,eur",
-                "include_24hr_change": "true",
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return {
-            "btc_price": data["bitcoin"]["usd"],
-            "btc_price_eur": data["bitcoin"]["eur"],
-            "btc_change": data["bitcoin"]["usd_24h_change"],
-            "eth_price": data["ethereum"]["usd"],
-            "eth_price_eur": data["ethereum"]["eur"],
-        }
-    except Exception as e:
-        logger.error("Failed to fetch prices from CoinGecko: %s", e)
-        return {
-            "btc_price": None, "btc_price_eur": None,
-            "btc_change": None,
-            "eth_price": None, "eth_price_eur": None,
-        }
-
-
-def _fetch_funding_rate() -> float | None:
-    """Fetch current BTC funding rate from OKX (no geo-restrictions from GitHub)."""
-    try:
-        resp = requests.get(
-            "https://www.okx.com/api/v5/public/funding-rate",
-            params={"instId": "BTC-USDT-SWAP"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json().get("data", [])
-        if data:
-            return float(data[0]["fundingRate"])
-        return None
-    except Exception as e:
-        logger.error("Failed to fetch funding rate: %s", e)
-        return None
-
-
-def _fetch_eth_mvrv() -> float | None:
-    try:
-        resp = requests.get(
-            "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics",
-            params={"assets": "eth", "metrics": "CapMVRVCur", "frequency": "1d", "page_size": "1", "paging_from": "end"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json().get("data", [])
-        if data:
-            return float(data[0].get("CapMVRVCur", 0))
-        return None
-    except Exception as e:
-        logger.error("Failed to fetch ETH MVRV: %s", e)
-        return None
-
-
-def _fetch_btc_mvrv() -> float | None:
-    """Fetch BTC MVRV from CoinMetrics (informativo, no es señal de venta)."""
-    try:
-        resp = requests.get(
-            "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics",
-            params={"assets": "btc", "metrics": "CapMVRVCur", "frequency": "1d", "page_size": "1", "paging_from": "end"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json().get("data", [])
-        if data:
-            return float(data[0].get("CapMVRVCur", 0))
-        return None
-    except Exception as e:
-        logger.error("Failed to fetch BTC MVRV: %s", e)
-        return None
-
-
-# ---------------------------------------------------------------------------
 # Alert deduplication
 # ---------------------------------------------------------------------------
 
@@ -227,21 +172,21 @@ def check_and_alert() -> list[dict]:
     """
     init_db()
 
-    prices = _fetch_prices()
-    funding_rate = _fetch_funding_rate()
-    mvrv = _fetch_eth_mvrv()
+    prices = fetch_prices()
+    funding_rate = fetch_funding_rate()
+    mvrv = fetch_mvrv("eth")
 
     btc_price = prices.get("btc_price")
-    btc_change = prices.get("btc_change")
+    btc_change = prices.get("btc_change_24h")
     eth_price = prices.get("eth_price")
 
     triggered = []
 
     with get_session() as session:
         # Signal 1: BTC crash > 15% in 24h
-        if btc_change is not None and btc_change <= -15:
+        if btc_change is not None and btc_change <= BTC_CRASH_THRESHOLD:
             alert_type = "btc_crash"
-            if not _already_alerted(session, alert_type, hours=6):
+            if not _already_alerted(session, alert_type, hours=COOLDOWN_BTC_CRASH):
                 details = {
                     "btc_price": btc_price, "btc_change": btc_change, "eth_price": eth_price,
                     "recommendation": "Buy extra 100-150 EUR of BTC in Trade Republic. Crashes of this magnitude recover within 3-6 months.",
@@ -251,9 +196,9 @@ def check_and_alert() -> list[dict]:
                 triggered.append({"type": alert_type, "severity": "red", "sent": sent})
 
         # Signal 2: BTC funding rate < -0.01%
-        if funding_rate is not None and funding_rate < -0.0001:
+        if funding_rate is not None and funding_rate < FUNDING_RATE_THRESHOLD:
             alert_type = "funding_negative"
-            if not _already_alerted(session, alert_type, hours=24):
+            if not _already_alerted(session, alert_type, hours=COOLDOWN_FUNDING):
                 details = {
                     "btc_price": btc_price, "funding_rate": funding_rate, "eth_price": eth_price,
                     "recommendation": "Shorts paying longs (88% win rate historically). Buy extra 100 EUR of BTC.",
@@ -264,9 +209,9 @@ def check_and_alert() -> list[dict]:
 
         # Signal 3: ETH MVRV
         if mvrv is not None:
-            if mvrv < 0.8:
+            if mvrv < ETH_MVRV_CRITICAL:
                 alert_type = "mvrv_critical"
-                if not _already_alerted(session, alert_type, hours=168):  # 7 dias
+                if not _already_alerted(session, alert_type, hours=COOLDOWN_MVRV):
                     details = {
                         "btc_price": btc_price, "eth_price": eth_price, "mvrv": mvrv,
                         "recommendation": "ETH muy infravalorado (61% win rate, +10.1% avg a 30d, re-validado 2018-2026). Aumenta el Sparplan de ETH lo que puedas permitirte este mes, luego resetea a 2 EUR (0 fees).",
@@ -274,9 +219,9 @@ def check_and_alert() -> list[dict]:
                     sent = send_discord_message(_format_embed("ETH MVRV Critical (< 0.8)", "red", details))
                     _log_alert(session, alert_type, "red", btc_price, eth_price, mvrv, sent)
                     triggered.append({"type": alert_type, "severity": "red", "sent": sent})
-            elif mvrv < 1.0:
+            elif mvrv < ETH_MVRV_LOW:
                 alert_type = "mvrv_low"
-                if not _already_alerted(session, alert_type, hours=168):  # 7 dias
+                if not _already_alerted(session, alert_type, hours=COOLDOWN_MVRV):
                     details = {
                         "btc_price": btc_price, "eth_price": eth_price, "mvrv": mvrv,
                         "recommendation": "ETH en zona infravalorada (54% win rate, +6.3% avg a 30d, re-validado 2018-2026). Considera aumentar el Sparplan de ETH lo que puedas permitirte este mes, luego resetea a 2 EUR (0 fees).",
@@ -285,22 +230,14 @@ def check_and_alert() -> list[dict]:
                     _log_alert(session, alert_type, "yellow", btc_price, eth_price, mvrv, sent)
                     triggered.append({"type": alert_type, "severity": "yellow", "sent": sent})
 
-        # Signals 4+: BTC DCA-out -- vender 3% cada $20k por encima de $80k
-        # Cada nivel tiene su propia deduplicacion de 30 dias (cooldown independiente).
-        # Backtest: +62pp a +115pp vs hold despues de impuestos IRPF (research4.py).
-        # Break-even: DCA-out gana si BTC termina el ciclo por debajo de ~$108k.
+        # Signals 4+: BTC DCA-out -- vender BTC_DCA_OUT_PCT% cada BTC_DCA_OUT_STEP por encima de BTC_DCA_OUT_BASE
         if btc_price is not None:
-            BTC_DCA_OUT_BASE  = 80_000   # primer nivel a partir del cual empezar
-            BTC_DCA_OUT_STEP  = 20_000   # escalon entre niveles
-            BTC_DCA_OUT_MAX   = 500_000  # limite superior (no se esperan alertas reales tan altas)
-            BTC_DCA_OUT_PCT   = 3        # % de holdings a vender por nivel
-
             level = BTC_DCA_OUT_BASE
             level_num = 1
             while level <= BTC_DCA_OUT_MAX:
                 if btc_price >= level:
                     alert_type = "btc_dca_out_{:d}k".format(level // 1000)
-                    if not _already_alerted(session, alert_type, hours=720):  # 30 dias
+                    if not _already_alerted(session, alert_type, hours=COOLDOWN_DCA_OUT):
                         details = {
                             "btc_price": btc_price,
                             "btc_price_eur": prices.get("btc_price_eur"),
@@ -310,12 +247,13 @@ def check_and_alert() -> list[dict]:
                             "recommendation": (
                                 "DCA-out nivel {:d} (${:,.0f}): vende el {}% de tus BTC en Trade Republic. "
                                 "Orden de mercado o limite a {:,.0f} EUR. "
-                                "Estrategia: -3% por cada ${}k subida. "
+                                "Estrategia: -{}% por cada ${}k subida. "
                                 "No vendas mas de este porcentaje -- el resto sigue en DCA.".format(
                                     level_num,
                                     level,
                                     BTC_DCA_OUT_PCT,
                                     prices.get("btc_price_eur") or 0,
+                                    BTC_DCA_OUT_PCT,
                                     BTC_DCA_OUT_STEP // 1000,
                                 )
                             ),
@@ -332,19 +270,14 @@ def check_and_alert() -> list[dict]:
                 level += BTC_DCA_OUT_STEP
                 level_num += 1
 
-        # Signals 5+: ETH DCA-out -- vender 3% cada $1k por encima de $3k
+        # Signals 5+: ETH DCA-out -- vender ETH_DCA_OUT_PCT% cada ETH_DCA_OUT_STEP por encima de ETH_DCA_OUT_BASE
         if eth_price is not None:
-            ETH_DCA_OUT_BASE = 3_000
-            ETH_DCA_OUT_STEP = 1_000
-            ETH_DCA_OUT_MAX  = 50_000
-            ETH_DCA_OUT_PCT  = 3
-
             level = ETH_DCA_OUT_BASE
             level_num = 1
             while level <= ETH_DCA_OUT_MAX:
                 if eth_price >= level:
                     alert_type = "eth_dca_out_{:d}k".format(level // 1000)
-                    if not _already_alerted(session, alert_type, hours=720):  # 30 dias
+                    if not _already_alerted(session, alert_type, hours=COOLDOWN_DCA_OUT):
                         details = {
                             "btc_price": btc_price,
                             "btc_price_eur": prices.get("btc_price_eur"),
@@ -411,14 +344,14 @@ def send_weekly_digest() -> bool:
             logger.info("Weekly digest already sent within last 6 days, skipping.")
             return False
 
-    prices = _fetch_prices()
-    funding_rate = _fetch_funding_rate()
-    eth_mvrv = _fetch_eth_mvrv()
-    btc_mvrv = _fetch_btc_mvrv()
+    prices = fetch_prices()
+    funding_rate = fetch_funding_rate()
+    eth_mvrv = fetch_mvrv("eth")
+    btc_mvrv = fetch_mvrv("btc")
 
     btc_price = prices.get("btc_price")
     btc_price_eur = prices.get("btc_price_eur")
-    btc_change = prices.get("btc_change")
+    btc_change = prices.get("btc_change_24h")
     eth_price = prices.get("eth_price")
     eth_price_eur = prices.get("eth_price_eur")
 

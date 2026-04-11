@@ -33,6 +33,12 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[all]"
 
+      - name: Run tests
+        run: pytest tests/ -q
+
+      - name: Lint
+        run: ruff check alerts config data strategies backtesting dashboard analysis main.py
+
       - name: Run signal check and notify
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}

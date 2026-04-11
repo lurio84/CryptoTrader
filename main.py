@@ -161,7 +161,7 @@ def cmd_dca_backtest(args: argparse.Namespace) -> None:
 
         if not result.buy_log.empty:
             fg_dist = result.buy_log["fear_greed"].describe()
-            print(f"\n  Sentiment distribution on buy days:")
+            print("\n  Sentiment distribution on buy days:")
             print(f"    Mean F&G:   {fg_dist['mean']:.0f}")
             print(f"    Min F&G:    {fg_dist['min']:.0f}")
             print(f"    Max F&G:    {fg_dist['max']:.0f}")
@@ -189,70 +189,32 @@ def _halving_cycle_info() -> dict:
 def cmd_check(args: argparse.Namespace) -> None:
     """Quick check: fetch all signals and show current status."""
     init_db()
-    import requests as req
+    from data.market_data import fetch_prices, fetch_mvrv, fetch_funding_rate, fetch_fear_greed
+    from alerts.discord_bot import (
+        BTC_CRASH_THRESHOLD, FUNDING_RATE_THRESHOLD,
+        ETH_MVRV_CRITICAL, ETH_MVRV_LOW,
+        BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP, BTC_DCA_OUT_MAX, BTC_DCA_OUT_PCT,
+        ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP, ETH_DCA_OUT_MAX, ETH_DCA_OUT_PCT,
+    )
 
     print("CryptoTrader Advisor - Quick Check")
     print("=" * 55)
 
-    # Prices
-    try:
-        resp = req.get(
-            "https://api.coingecko.com/api/v3/simple/price",
-            params={"ids": "bitcoin,ethereum", "vs_currencies": "usd", "include_24hr_change": "true"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        cg = resp.json()
-        btc_price = cg["bitcoin"]["usd"]
-        btc_change = cg["bitcoin"]["usd_24h_change"]
-        eth_price = cg["ethereum"]["usd"]
-        eth_change = cg["ethereum"].get("usd_24h_change", 0)
-    except Exception:
-        btc_price = btc_change = eth_price = eth_change = None
+    prices   = fetch_prices()
+    fg       = fetch_fear_greed()
+    mvrv     = fetch_mvrv("eth")
+    btc_mvrv = fetch_mvrv("btc")
+    funding  = fetch_funding_rate()
 
-    # Fear & Greed
-    try:
-        fg = req.get("https://api.alternative.me/fng/?limit=1", timeout=10).json()
-        fg_val = int(fg["data"][0]["value"])
-        fg_label = fg["data"][0]["value_classification"]
-    except Exception:
-        fg_val = fg_label = None
-
-    # ETH MVRV
-    try:
-        mv = req.get("https://community-api.coinmetrics.io/v4/timeseries/asset-metrics",
-                      params={"assets": "eth", "metrics": "CapMVRVCur",
-                              "frequency": "1d", "page_size": "1",
-                              "paging_from": "end"}, timeout=10).json()
-        mvrv = float(mv["data"][0]["CapMVRVCur"])
-    except Exception:
-        mvrv = None
-
-    # BTC MVRV (informativo)
-    try:
-        mv_btc = req.get("https://community-api.coinmetrics.io/v4/timeseries/asset-metrics",
-                          params={"assets": "btc", "metrics": "CapMVRVCur",
-                                  "frequency": "1d", "page_size": "1",
-                                  "paging_from": "end"}, timeout=10).json()
-        btc_mvrv = float(mv_btc["data"][0]["CapMVRVCur"])
-    except Exception:
-        btc_mvrv = None
-
-    # Funding rate (live from OKX - no geo-restrictions from GitHub)
-    try:
-        fr = req.get(
-            "https://www.okx.com/api/v5/public/funding-rate",
-            params={"instId": "BTC-USDT-SWAP"},
-            timeout=10,
-        )
-        fr.raise_for_status()
-        fr_data = fr.json().get("data", [])
-        funding = float(fr_data[0]["fundingRate"]) if fr_data else None
-    except Exception:
-        funding = None
+    btc_price  = prices.get("btc_price")
+    btc_change = prices.get("btc_change_24h")
+    eth_price  = prices.get("eth_price")
+    eth_change = prices.get("eth_change_24h")
+    fg_val     = fg.get("fear_greed_value")
+    fg_label   = fg.get("fear_greed_label")
 
     # Display
-    print(f"\n  MARKET STATUS:")
+    print("\n  MARKET STATUS:")
     if btc_price:
         color = "+" if btc_change and btc_change > 0 else ""
         print(f"    BTC:  ${btc_price:,.2f}  ({color}{btc_change:.1f}% 24h)")
@@ -270,67 +232,65 @@ def cmd_check(args: argparse.Namespace) -> None:
 
     # Halving cycle
     hc = _halving_cycle_info()
-    print(f"\n  CICLO HALVING:")
+    print("\n  CICLO HALVING:")
     print(f"    Mes {hc['months_elapsed']:.1f}/48 desde halving {hc['halving_date']}")
     if hc["in_risk_zone"]:
-        print(f"    [WATCH] Zona de menor retorno historico (meses 18-24): -7.2% a 30d vs baseline")
-        print(f"            Informativo: continua el Sparplan normal, no vender por este motivo")
+        print("    [WATCH] Zona de menor retorno historico (meses 18-24): -7.2% a 30d vs baseline")
+        print("            Informativo: continua el Sparplan normal, no vender por este motivo")
     else:
-        print(f"    [OK] Fuera de zona de riesgo del ciclo")
+        print("    [OK] Fuera de zona de riesgo del ciclo")
 
     # Alerts
-    print(f"\n  SIGNALS:")
+    print("\n  SIGNALS:")
     has_alert = False
 
-    if btc_change is not None and btc_change <= -15:
+    if btc_change is not None and btc_change <= BTC_CRASH_THRESHOLD:
         print(f"    [RED] BTC CRASH: {btc_change:.1f}% in 24h")
-        print(f"          -> Buy extra 100-150 EUR of BTC in Trade Republic")
+        print("          -> Buy extra 100-150 EUR of BTC in Trade Republic")
         has_alert = True
 
-    if btc_change is not None and btc_change <= -10 and btc_change > -15:
+    if btc_change is not None and btc_change <= -10 and btc_change > BTC_CRASH_THRESHOLD:
         print(f"    [WATCH] BTC dropped {btc_change:.1f}% - monitoring for further drop")
         has_alert = True
 
-    if funding is not None and funding < -0.0001:
+    if funding is not None and funding < FUNDING_RATE_THRESHOLD:
         print(f"    [ORANGE] Negative funding ({funding*100:.4f}%)")
-        print(f"          -> Bullish signal, consider extra BTC buy")
+        print("          -> Bullish signal, consider extra BTC buy")
         has_alert = True
 
-    if mvrv is not None and mvrv < 0.8:
-        print(f"    [RED] ETH MVRV at {mvrv:.3f} (< 0.8) - deep value!")
-        print(f"          -> Buy extra 100 EUR of ETH in Trade Republic")
+    if mvrv is not None and mvrv < ETH_MVRV_CRITICAL:
+        print(f"    [RED] ETH MVRV at {mvrv:.3f} (< {ETH_MVRV_CRITICAL}) - deep value!")
+        print("          -> Buy extra 100 EUR of ETH in Trade Republic")
         has_alert = True
-    elif mvrv is not None and mvrv < 1.0:
-        print(f"    [YELLOW] ETH MVRV at {mvrv:.3f} (< 1.0) - undervalued")
-        print(f"          -> Consider increasing ETH Sparplan temporarily")
+    elif mvrv is not None and mvrv < ETH_MVRV_LOW:
+        print(f"    [YELLOW] ETH MVRV at {mvrv:.3f} (< {ETH_MVRV_LOW}) - undervalued")
+        print("          -> Consider increasing ETH Sparplan temporarily")
         has_alert = True
 
     # BTC DCA-out levels
     if btc_price is not None:
-        btc_dca_base, btc_dca_step = 80_000, 20_000
-        level = btc_dca_base
+        level = BTC_DCA_OUT_BASE
         level_num = 1
-        while level <= 500_000:
+        while level <= BTC_DCA_OUT_MAX:
             if btc_price >= level:
-                print(f"    [ORANGE] BTC DCA-out nivel {level_num} (${level:,.0f}): vende el 3% de tus BTC en TR")
+                print(f"    [ORANGE] BTC DCA-out nivel {level_num} (${level:,.0f}): vende el {BTC_DCA_OUT_PCT}% de tus BTC en TR")
                 has_alert = True
-            level += btc_dca_step
+            level += BTC_DCA_OUT_STEP
             level_num += 1
 
     # ETH DCA-out levels
     if eth_price is not None:
-        eth_dca_base, eth_dca_step = 3_000, 1_000
-        level = eth_dca_base
+        level = ETH_DCA_OUT_BASE
         level_num = 1
-        while level <= 50_000:
+        while level <= ETH_DCA_OUT_MAX:
             if eth_price >= level:
-                print(f"    [ORANGE] ETH DCA-out nivel {level_num} (${level:,.0f}): vende el 3% de tu ETH en TR")
+                print(f"    [ORANGE] ETH DCA-out nivel {level_num} (${level:,.0f}): vende el {ETH_DCA_OUT_PCT}% de tu ETH en TR")
                 has_alert = True
-            level += eth_dca_step
+            level += ETH_DCA_OUT_STEP
             level_num += 1
 
     if not has_alert:
-        print(f"    [OK] No action needed. Sparplan running as usual.")
+        print("    [OK] No action needed. Sparplan running as usual.")
 
     if args.notify:
         from alerts.discord_bot import check_and_alert
@@ -339,7 +299,7 @@ def cmd_check(args: argparse.Namespace) -> None:
             sent = sum(1 for a in triggered if a.get("sent"))
             print(f"\n  Discord alerts sent: {sent}/{len(triggered)}")
         else:
-            print(f"\n  No alerts triggered.")
+            print("\n  No alerts triggered.")
 
     print(f"\n{'='*55}")
 
@@ -536,6 +496,13 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
 
     total_portfolio = sum(all_values.values())
 
+    # Warn explicitly when crypto prices were unavailable so the user knows
+    # the TOTAL below is understated (crypto counted as 0).
+    if btc_trades and not btc_price_eur:
+        print("\n  [!] Precio BTC no disponible - BTC excluido del total (precio: 0)")
+    if eth_trades and not eth_price_eur:
+        print("  [!] Precio ETH no disponible - ETH excluido del total (precio: 0)")
+
     if total_portfolio > 0:
         THRESHOLD = 10.0
         print(f"\n  {'Activo':<16} {'Valor EUR':>10}  {'Actual%':>7}  {'Target%':>7}  {'Drift':>7}  Estado")
@@ -556,7 +523,7 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
         print(f"  {'TOTAL':<16} {total_portfolio:>10,.0f}E")
         if needs_rebalance:
             print(f"\n  Threshold de rebalanceo: >|{THRESHOLD:.0f}pp| de drift")
-            print(f"  Research: rebalanceo anual mejora CAGR de 12.5% a 14.7% (datos 2018-2026)")
+            print("  Research: rebalanceo anual mejora CAGR de 12.5% a 14.7% (datos 2018-2026)")
     else:
         total_invested_all = crypto_total_invested + etf_invested_total
         print(f"\n  Total invertido (precios no disponibles): {total_invested_all:,.2f} EUR")
@@ -568,7 +535,7 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
         etf_pnl = etf_value_total - etf_invested_total
         etf_sign = "+" if etf_pnl >= 0 else ""
         print(f"  ETF invertido:    {etf_invested_total:>10,.2f} EUR  |  Valor: {etf_value_total:>10,.2f} EUR  |  PnL: {etf_sign}{etf_pnl:,.2f} EUR")
-    print(f"\n  Backup: python main.py portfolio export > mis_trades.csv")
+    print("\n  Backup: python main.py portfolio export > mis_trades.csv")
     if not all_trades:
         print("\nNo hay operaciones registradas.")
         print("Usa: python main.py portfolio add-buy --asset BTC --units 0.001 --price-eur 45000 --source sparplan")
@@ -664,13 +631,12 @@ def cmd_rebalance(args: argparse.Namespace) -> None:
         print("Error: el total de la cartera es 0.")
         sys.exit(1)
 
-    print(f"\n  Precios crypto actuales:")
+    print("\n  Precios crypto actuales:")
     print(f"    BTC: {btc_eur:>10,.0f} EUR  |  ETH: {eth_eur:>10,.0f} EUR")
 
     print(f"\n  {'Activo':<16} {'Valor EUR':>10}  {'Actual%':>7}  {'Target%':>7}  {'Drift':>7}  Estado")
     print(f"  {'-'*16} {'-'*10}  {'-'*7}  {'-'*7}  {'-'*7}  ------")
 
-    needs_rebalance = False
     actions = []
 
     for asset, target_pct in SPARPLAN_TARGETS.items():
@@ -679,7 +645,6 @@ def cmd_rebalance(args: argparse.Namespace) -> None:
         drift = actual_pct - target_pct
         if abs(drift) > THRESHOLD_PP:
             estado = "[REBALANCEAR]"
-            needs_rebalance = True
             actions.append((asset, drift, val, target_pct, total))
         elif abs(drift) > THRESHOLD_PP / 2:
             estado = "[WATCH]"
@@ -696,15 +661,15 @@ def cmd_rebalance(args: argparse.Namespace) -> None:
             if drift > 0:
                 diff_eur = val - target_value
                 print(f"    [VENDER] {asset}: sobrepesado {drift:+.1f}pp -> vende ~{diff_eur:,.0f} EUR en TR")
-                print(f"             Reinvertir en activos bajo su target")
+                print("             Reinvertir en activos bajo su target")
             else:
                 diff_eur = target_value - val
                 print(f"    [COMPRAR] {asset}: infrapesado {drift:.1f}pp -> compra ~{diff_eur:,.0f} EUR extra en TR")
-        print(f"\n  Costes: ~1 EUR flat fee por operacion en TR")
-        print(f"  IRPF: tributa la plusvalia en ventas (precio venta - coste FIFO)")
-        print(f"  Research: rebalanceo anual mejora CAGR de 12.5%% a 14.7%% (datos 2018-2026)")
+        print("\n  Costes: ~1 EUR flat fee por operacion en TR")
+        print("  IRPF: tributa la plusvalia en ventas (precio venta - coste FIFO)")
+        print("  Research: rebalanceo anual mejora CAGR de 12.5%% a 14.7%% (datos 2018-2026)")
     else:
-        print(f"\n  Cartera dentro de rangos normales. No es necesario rebalancear.")
+        print("\n  Cartera dentro de rangos normales. No es necesario rebalancear.")
 
     print(f"\n{'='*60}")
 
@@ -723,7 +688,7 @@ def cmd_retirement_plan(args: argparse.Namespace) -> None:
     print(f"  Edad actual: {args.age}  |  Jubilacion: {args.retire_age}  |  Horizonte: {n_years} anos")
     print(f"  DCA mensual: {args.monthly:.0f} EUR  |  Objetivo: {args.target_eur:,.0f} EUR")
     print(f"  Simulaciones: {args.simulations:,}  |  Metodo: bootstrap resampling retornos historicos")
-    print(f"  Activos: BTC/ETH (yfinance), SPY/SOXX/O/URA (yfinance)")
+    print("  Activos: BTC/ETH (yfinance), SPY/SOXX/O/URA (yfinance)")
     print()
     print("  Ejecutando simulacion (puede tardar ~20-30s)...")
 
@@ -761,8 +726,10 @@ def cmd_retirement_plan(args: argparse.Namespace) -> None:
     print(f"  Retiro mensual (4%):    {result.safe_withdrawal_rate_4pct:>12,.0f} EUR/mes")
     print(f"  Datos historicos:       {result.data_start_year}-{result.data_end_year}  "
           f"({result.data_months} meses alineados)")
-    print(f"\n  NOTA: Proyeccion basada en retornos historicos. El futuro puede diferir.")
-    print(f"  Sin impuestos intermedios, sin inflacion ajustada.")
+    print("\n  NOTA: Proyeccion basada en retornos historicos. El futuro puede diferir.")
+    print("  Sin impuestos intermedios, sin inflacion ajustada.")
+    print(f"  Dataset limitado a {result.data_start_year}-{result.data_end_year} "
+          f"(inicio datos ETH). Incluye bull run crypto 2020-2021 y 2023-2024.")
     print(f"{'='*60}")
 
 

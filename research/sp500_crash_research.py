@@ -233,6 +233,12 @@ def check_compound_signal(
     btc_threshold: float = -0.10,
 ) -> dict:
     """Check if S&P crash + BTC crash coincide and measure forward S&P returns."""
+    # S&P 500 weekly bars end on Friday; BTC bars end on Sunday (crypto 24/7).
+    # Normalise both to the Monday of their ISO week so the inner join finds matches.
+    sp500_rets = sp500_rets.copy()
+    btc_rets = btc_rets.copy()
+    sp500_rets.index = sp500_rets.index.to_period("W-MON").to_timestamp()
+    btc_rets.index = btc_rets.index.to_period("W-MON").to_timestamp()
     sp500_rets_aligned, btc_rets_aligned = sp500_rets.align(btc_rets, join="inner")
     if sp500_rets_aligned.empty:
         return {"n": 0, "note": "No overlapping data between S&P 500 and BTC"}

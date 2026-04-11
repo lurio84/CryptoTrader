@@ -1,123 +1,26 @@
 """FastAPI dashboard for CryptoTrader Advisor."""
 
 import logging
-from datetime import datetime, date, timezone, timedelta
+from datetime import datetime, date, timezone
 from pathlib import Path
 
-import requests
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
-from config.settings import settings
 from data.database import init_db, get_session
-from data.models import SentimentData, AlertLog
+from data.market_data import fetch_prices, fetch_mvrv, fetch_funding_rate, fetch_fear_greed
+from data.models import AlertLog
+from alerts.discord_bot import (
+    BTC_CRASH_THRESHOLD, FUNDING_RATE_THRESHOLD,
+    ETH_MVRV_CRITICAL, ETH_MVRV_LOW,
+)
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="CryptoTrader Advisor")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
-
-
-def _fetch_prices() -> dict:
-    """Fetch current BTC and ETH prices from CoinGecko (USD + EUR + 24h change)."""
-    try:
-        resp = requests.get(
-            "https://api.coingecko.com/api/v3/simple/price",
-            params={
-                "ids": "bitcoin,ethereum",
-                "vs_currencies": "usd,eur",
-                "include_24hr_change": "true",
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return {
-            "btc_price": data["bitcoin"]["usd"],
-            "btc_price_eur": data["bitcoin"]["eur"],
-            "btc_change_24h": data["bitcoin"]["usd_24h_change"],
-            "eth_price": data["ethereum"]["usd"],
-            "eth_price_eur": data["ethereum"]["eur"],
-            "eth_change_24h": data["ethereum"]["usd_24h_change"],
-        }
-    except Exception as e:
-        logger.error("Failed to fetch prices from CoinGecko: %s", e)
-        return {
-            "btc_price": None,
-            "btc_price_eur": None,
-            "btc_change_24h": None,
-            "eth_price": None,
-            "eth_price_eur": None,
-            "eth_change_24h": None,
-        }
-
-
-def _fetch_fear_greed() -> dict:
-    """Fetch current Fear & Greed Index."""
-    try:
-        resp = requests.get(
-            "https://api.alternative.me/fng/?limit=1",
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json().get("data", [{}])[0]
-        return {
-            "fear_greed_value": int(data.get("value", 0)),
-            "fear_greed_label": data.get("value_classification", "N/A"),
-        }
-    except Exception as e:
-        logger.error("Failed to fetch Fear & Greed: %s", e)
-        return {"fear_greed_value": None, "fear_greed_label": "N/A"}
-
-
-def _fetch_eth_mvrv() -> float | None:
-    """Fetch ETH MVRV from CoinMetrics community API."""
-    try:
-        resp = requests.get(
-            "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics",
-            params={
-                "assets": "eth",
-                "metrics": "CapMVRVCur",
-                "frequency": "1d",
-                "page_size": "1",
-                "paging_from": "end",
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json().get("data", [])
-        if data:
-            return float(data[0].get("CapMVRVCur", 0))
-        return None
-    except Exception as e:
-        logger.error("Failed to fetch ETH MVRV: %s", e)
-        return None
-
-
-def _fetch_btc_mvrv() -> float | None:
-    """Fetch BTC MVRV from CoinMetrics community API (informativo, no es señal de venta)."""
-    try:
-        resp = requests.get(
-            "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics",
-            params={
-                "assets": "btc",
-                "metrics": "CapMVRVCur",
-                "frequency": "1d",
-                "page_size": "1",
-                "paging_from": "end",
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json().get("data", [])
-        if data:
-            return float(data[0].get("CapMVRVCur", 0))
-        return None
-    except Exception as e:
-        logger.error("Failed to fetch BTC MVRV: %s", e)
-        return None
 
 
 _LAST_HALVING = date(2024, 4, 19)
@@ -143,23 +46,6 @@ def _get_halving_cycle() -> dict:
         "next_halving_year": next_halving_year,
         "halving_date": _LAST_HALVING.strftime("%b %Y"),
     }
-
-
-def _get_latest_funding_rate() -> float | None:
-    """Fetch current BTC funding rate live from OKX."""
-    try:
-        resp = requests.get(
-            "https://www.okx.com/api/v5/public/funding-rate",
-            params={"instId": "BTC-USDT-SWAP"},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json().get("data", [])
-        if data:
-            return float(data[0]["fundingRate"])
-        return None
-    except Exception:
-        return None
 
 
 def _get_alert_history(limit: int = 20) -> list[dict]:
@@ -188,18 +74,18 @@ def _get_alert_history(limit: int = 20) -> list[dict]:
 
 
 def _evaluate_alerts(prices: dict, funding_rate: float | None, mvrv: float | None) -> list[dict]:
-    """Evaluate current alert conditions."""
+    """Evaluate current alert conditions using thresholds from discord_bot."""
     alerts = []
 
     btc_change = prices.get("btc_change_24h")
-    if btc_change is not None and btc_change <= -15:
+    if btc_change is not None and btc_change <= BTC_CRASH_THRESHOLD:
         alerts.append({
             "severity": "red",
             "type": "BTC Crash",
             "message": "BTC dropped %.1f%% in 24h - consider large DCA buy" % btc_change,
         })
 
-    if funding_rate is not None and funding_rate < -0.0001:
+    if funding_rate is not None and funding_rate < FUNDING_RATE_THRESHOLD:
         alerts.append({
             "severity": "orange",
             "type": "Negative Funding",
@@ -209,17 +95,17 @@ def _evaluate_alerts(prices: dict, funding_rate: float | None, mvrv: float | Non
         })
 
     if mvrv is not None:
-        if mvrv < 0.8:
+        if mvrv < ETH_MVRV_CRITICAL:
             alerts.append({
                 "severity": "red",
                 "type": "ETH MVRV Critical",
-                "message": "ETH MVRV at %.2f (< 0.8) - historically strong buy zone" % mvrv,
+                "message": "ETH MVRV at %.2f (< %.1f) - historically strong buy zone" % (mvrv, ETH_MVRV_CRITICAL),
             })
-        elif mvrv < 1.0:
+        elif mvrv < ETH_MVRV_LOW:
             alerts.append({
                 "severity": "yellow",
                 "type": "ETH MVRV Low",
-                "message": "ETH MVRV at %.2f (< 1.0) - undervalued territory" % mvrv,
+                "message": "ETH MVRV at %.2f (< %.1f) - undervalued territory" % (mvrv, ETH_MVRV_LOW),
             })
 
     return alerts
@@ -264,11 +150,11 @@ def api_status():
     from concurrent.futures import ThreadPoolExecutor
 
     with ThreadPoolExecutor(max_workers=5) as pool:
-        f_prices = pool.submit(_fetch_prices)
-        f_fg = pool.submit(_fetch_fear_greed)
-        f_eth_mvrv = pool.submit(_fetch_eth_mvrv)
-        f_btc_mvrv = pool.submit(_fetch_btc_mvrv)
-        f_funding = pool.submit(_get_latest_funding_rate)
+        f_prices  = pool.submit(fetch_prices)
+        f_fg      = pool.submit(fetch_fear_greed)
+        f_eth_mvrv = pool.submit(fetch_mvrv, "eth")
+        f_btc_mvrv = pool.submit(fetch_mvrv, "btc")
+        f_funding  = pool.submit(fetch_funding_rate)
 
     prices = f_prices.result()
     fg = f_fg.result()

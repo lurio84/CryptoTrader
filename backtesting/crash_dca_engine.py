@@ -9,9 +9,8 @@ Based on research findings:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import pandas as pd
-import numpy as np
 
 from config.settings import settings
 
