@@ -251,7 +251,7 @@ def check_and_alert() -> list[dict]:
                 if not _already_alerted(session, alert_type, hours=168):  # 7 dias
                     details = {
                         "btc_price": btc_price, "eth_price": eth_price, "mvrv": mvrv,
-                        "recommendation": "ETH muy infravalorado (61% win rate, +10.1% avg a 30d, re-validado 2018-2026). Aumenta el Sparplan de ETH a 102 EUR para la proxima ejecucion, luego resetea a 2 EUR (0 fees).",
+                        "recommendation": "ETH muy infravalorado (61% win rate, +10.1% avg a 30d, re-validado 2018-2026). Aumenta el Sparplan de ETH lo que puedas permitirte este mes, luego resetea a 2 EUR (0 fees).",
                     }
                     sent = send_discord_message(_format_embed("ETH MVRV Critical (< 0.8)", "red", details))
                     _log_alert(session, alert_type, "red", btc_price, eth_price, mvrv, sent)
@@ -261,7 +261,7 @@ def check_and_alert() -> list[dict]:
                 if not _already_alerted(session, alert_type, hours=168):  # 7 dias
                     details = {
                         "btc_price": btc_price, "eth_price": eth_price, "mvrv": mvrv,
-                        "recommendation": "ETH en zona infravalorada (54% win rate, +6.3% avg a 30d, re-validado 2018-2026). Considera aumentar el Sparplan de ETH a 52 EUR para la proxima ejecucion, luego resetea a 2 EUR (0 fees).",
+                        "recommendation": "ETH en zona infravalorada (54% win rate, +6.3% avg a 30d, re-validado 2018-2026). Considera aumentar el Sparplan de ETH lo que puedas permitirte este mes, luego resetea a 2 EUR (0 fees).",
                     }
                     sent = send_discord_message(_format_embed("ETH MVRV Low (< 1.0)", "yellow", details))
                     _log_alert(session, alert_type, "yellow", btc_price, eth_price, mvrv, sent)
