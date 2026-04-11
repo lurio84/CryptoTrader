@@ -109,6 +109,46 @@ def fetch_funding_rate() -> float | None:
         return None
 
 
+def fetch_sp500_change(days: int = 5) -> float | None:
+    """Fetch S&P 500 recent price change via Stooq (no API key, works in GitHub Actions).
+
+    Args:
+        days: Number of trading days to look back (default 5 = one week).
+
+    Returns percentage change over the last `days` trading days, or None on failure.
+    Validated threshold: -5% over 5d (research6: N=31, consistent edge).
+    """
+    try:
+        import csv
+        import io
+        from datetime import date, timedelta
+
+        end = date.today()
+        # Request extra calendar days to ensure we get enough trading days
+        start = end - timedelta(days=days * 3 + 10)
+        url = (
+            "https://stooq.com/q/d/l/?s=spy.us&d1={}&d2={}&i=d".format(
+                start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
+            )
+        )
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        reader = csv.DictReader(io.StringIO(resp.text))
+        rows = [r for r in reader if r.get("Close") and r["Close"] != "null"]
+        if len(rows) < 2:
+            logger.warning("Stooq returned insufficient data for SPY (%d rows)", len(rows))
+            return None
+        rows.sort(key=lambda r: r.get("Date", ""))
+        closes = [float(r["Close"]) for r in rows]
+        recent = closes[-1]
+        base_idx = max(0, len(closes) - 1 - days)
+        base = closes[base_idx]
+        return float((recent - base) / base * 100)
+    except Exception as e:
+        logger.error("Failed to fetch S&P 500 change from Stooq: %s", e)
+        return None
+
+
 def fetch_fear_greed() -> dict:
     """Fetch current Fear & Greed Index from alternative.me.
 

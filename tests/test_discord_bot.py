@@ -72,6 +72,7 @@ def test_no_alerts_when_normal(db_session):
         patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
         patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0001),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.5),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
         patch("alerts.discord_bot.init_db"),
         patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
@@ -94,6 +95,7 @@ def test_btc_crash_triggered(db_session):
         patch("alerts.discord_bot.fetch_prices", return_value=prices),
         patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
         patch("alerts.discord_bot.init_db"),
         patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
@@ -118,6 +120,7 @@ def test_btc_crash_not_triggered_small_drop(db_session):
         patch("alerts.discord_bot.fetch_prices", return_value=prices),
         patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
         patch("alerts.discord_bot.init_db"),
         patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
@@ -138,6 +141,7 @@ def test_funding_negative_triggered(db_session):
         patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
         patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=-0.0002),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
         patch("alerts.discord_bot.init_db"),
         patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
@@ -159,6 +163,7 @@ def test_eth_mvrv_critical(db_session):
         patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
         patch("alerts.discord_bot.fetch_mvrv", return_value=0.6),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
         patch("alerts.discord_bot.init_db"),
         patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
@@ -176,6 +181,7 @@ def test_eth_mvrv_low(db_session):
         patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
         patch("alerts.discord_bot.fetch_mvrv", return_value=0.9),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
         patch("alerts.discord_bot.init_db"),
         patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
@@ -199,6 +205,7 @@ def test_btc_dca_out_level_triggered(db_session):
         patch("alerts.discord_bot.fetch_prices", return_value=prices),
         patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
         patch("alerts.discord_bot.init_db"),
         patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
@@ -219,6 +226,7 @@ def test_eth_dca_out_level_triggered(db_session):
         patch("alerts.discord_bot.fetch_prices", return_value=prices),
         patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
         patch("alerts.discord_bot.init_db"),
         patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
@@ -245,6 +253,7 @@ def test_deduplication_prevents_double_alert(db_session):
         patch("alerts.discord_bot.fetch_prices", return_value=prices),
         patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
         patch("alerts.discord_bot.init_db"),
         patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
@@ -255,6 +264,7 @@ def test_deduplication_prevents_double_alert(db_session):
         patch("alerts.discord_bot.fetch_prices", return_value=prices),
         patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
         patch("alerts.discord_bot.init_db"),
         patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
@@ -269,3 +279,103 @@ def test_deduplication_prevents_double_alert(db_session):
     # Only one row in DB
     rows = db_session.query(AlertLog).filter_by(alert_type="btc_crash").all()
     assert len(rows) == 1
+
+
+# ---------------------------------------------------------------------------
+# check_and_alert -- BTC MVRV critical
+# ---------------------------------------------------------------------------
+
+def test_btc_mvrv_critical_triggered(db_session):
+    """BTC MVRV < 1.0 triggers btc_mvrv_critical (orange)."""
+    with (
+        patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
+        patch("alerts.discord_bot.fetch_mvrv", return_value=0.85),
+        patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
+        patch("alerts.discord_bot.send_discord_message", return_value=True),
+        patch("alerts.discord_bot.init_db"),
+        patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
+    ):
+        from alerts.discord_bot import check_and_alert
+        result = check_and_alert()
+
+    types = [a["type"] for a in result]
+    assert "btc_mvrv_critical" in types
+    assert next(a for a in result if a["type"] == "btc_mvrv_critical")["severity"] == "orange"
+
+
+def test_btc_mvrv_not_triggered_above_threshold(db_session):
+    """BTC MVRV >= 1.0 does NOT trigger btc_mvrv_critical."""
+    with (
+        patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
+        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
+        patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
+        patch("alerts.discord_bot.send_discord_message", return_value=True),
+        patch("alerts.discord_bot.init_db"),
+        patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
+    ):
+        from alerts.discord_bot import check_and_alert
+        result = check_and_alert()
+
+    assert not any(a["type"] == "btc_mvrv_critical" for a in result)
+
+
+# ---------------------------------------------------------------------------
+# check_and_alert -- S&P500 crash
+# ---------------------------------------------------------------------------
+
+def test_sp500_crash_triggered(db_session):
+    """S&P500 drop of -6% over 5d triggers sp500_crash (orange)."""
+    with (
+        patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
+        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
+        patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=-6.0),
+        patch("alerts.discord_bot.send_discord_message", return_value=True),
+        patch("alerts.discord_bot.init_db"),
+        patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
+    ):
+        from alerts.discord_bot import check_and_alert
+        result = check_and_alert()
+
+    types = [a["type"] for a in result]
+    assert "sp500_crash" in types
+    assert next(a for a in result if a["type"] == "sp500_crash")["severity"] == "orange"
+
+    row = db_session.query(AlertLog).filter_by(alert_type="sp500_crash").first()
+    assert row is not None
+
+
+def test_sp500_no_alert_when_normal(db_session):
+    """S&P500 change of -2% does NOT trigger sp500_crash."""
+    with (
+        patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
+        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
+        patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=-2.0),
+        patch("alerts.discord_bot.send_discord_message", return_value=True),
+        patch("alerts.discord_bot.init_db"),
+        patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
+    ):
+        from alerts.discord_bot import check_and_alert
+        result = check_and_alert()
+
+    assert not any(a["type"] == "sp500_crash" for a in result)
+
+
+def test_sp500_none_does_not_crash(db_session):
+    """fetch_sp500_change returning None (Stooq unavailable) does not trigger any alert."""
+    with (
+        patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
+        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
+        patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=None),
+        patch("alerts.discord_bot.send_discord_message", return_value=True),
+        patch("alerts.discord_bot.init_db"),
+        patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
+    ):
+        from alerts.discord_bot import check_and_alert
+        result = check_and_alert()
+
+    assert not any(a["type"] == "sp500_crash" for a in result)

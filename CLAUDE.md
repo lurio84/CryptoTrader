@@ -22,14 +22,18 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 | funding_negative | Funding rate < -0.01%            | Compra 100 EUR BTC   | orange    | 24h   |
 | mvrv_critical    | ETH MVRV < 0.8                  | Compra 100 EUR ETH   | red       | 7d    |
 | mvrv_low         | ETH MVRV 0.8-1.0                | Aumentar Sparplan ETH| yellow    | 7d    |
+| btc_mvrv_critical| BTC MVRV < 1.0                  | Aumentar Sparplan BTC| orange    | 7d    |
+| sp500_crash      | S&P500 cae >5% en 5 dias (Stooq)| Compra extra BTC+ETF | orange    | 7d    |
 | btc_dca_out_Xk   | BTC >= $80k (+$20k steps)       | Vender 3% BTC en TR  | orange    | 30d   |
 | eth_dca_out_Xk   | ETH >= $3k (+$1k steps)         | Vender 3% ETH en TR  | orange    | 30d   |
 
 ## Decisiones arquitectura activas
 
 - Precios: CoinGecko (USD+EUR en una llamada). Funding: OKX. MVRV: CoinMetrics community.
+- S&P500: Stooq.com (CSV publico, sin API key, funciona en GitHub Actions). NO usar yfinance en alerts/CI.
 - Fear & Greed: NO usar como senal (validado que no funciona)
 - MVRV alto (BTC o ETH): NO es senal de venta (momentum continua en ciclos modernos)
+- BTC MVRV < 1.0: SI es senal de compra (capitulacion, precio bajo coste realizado). Implementado 2026-04.
 - DCA-out activo: alertas Discord ya implementadas
 - Rebalanceo: manual 1x/ano cuando BTC o ETH deriva >10pp del target
 - yfinance: SOLO LOCAL (portfolio/rebalance/retirement-plan). NUNCA en alerts/ ni CI.
@@ -79,12 +83,13 @@ python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 - Precios BTC/ETH: CoinGecko API (USD + EUR + 24h_change en una sola llamada)
 - Funding rate: OKX API (Binance y Bybit bloquean IPs de GitHub)
 - ETH MVRV + BTC MVRV: CoinMetrics community API
+- S&P500 5d change: Stooq.com (`fetch_sp500_change()` en `data/market_data.py`). Sin API key, CI-safe.
 - Precios ETF (LOCAL): yfinance (SPY, SOXX, O, URA + EURUSD=X). NUNCA en alerts/ ni CI.
 
 ## Convenciones
 
 - Conventional commits (hook configurado): feat:, fix:, docs:, etc.
-- Tests: pytest, 60 tests actualmente
+- Tests: pytest, 65 tests actualmente
 - NO usar caracteres unicode especiales en Python (Windows cp1252)
 - SQLAlchemy: convertir a dicts dentro del `with get_session()` antes de usar fuera del bloque.
   Patron de referencia: `_row_to_dict` en `cmd_portfolio` de `main.py`.
