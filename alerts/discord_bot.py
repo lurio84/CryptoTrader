@@ -146,6 +146,55 @@ def _log_alert(session, alert_type, severity, btc_price, eth_price, metric_value
 
 
 # ---------------------------------------------------------------------------
+# DCA-out helper (BTC and ETH share the same loop structure)
+# ---------------------------------------------------------------------------
+
+def _check_dca_out(
+    session,
+    asset: str,
+    price: float | None,
+    prices: dict,
+    btc_price: float | None,
+    eth_price: float | None,
+    dca_base: int,
+    dca_step: int,
+    dca_max: int,
+    extra_details: dict,
+    recommendation_fn,
+    triggered: list,
+) -> None:
+    """Check DCA-out levels for a given asset and append triggered alerts."""
+    if price is None:
+        return
+    level = dca_base
+    level_num = 1
+    while level <= dca_max:
+        if price >= level:
+            alert_type = "{}_dca_out_{:d}k".format(asset, level // 1000)
+            if not _already_alerted(session, alert_type, hours=COOLDOWN_DCA_OUT):
+                price_eur = prices.get("{}_price_eur".format(asset)) or 0
+                details = {
+                    "btc_price": btc_price,
+                    "btc_price_eur": prices.get("btc_price_eur"),
+                    "eth_price": eth_price,
+                    "eth_price_eur": prices.get("eth_price_eur"),
+                    "recommendation": recommendation_fn(level_num, level, price_eur),
+                    **extra_details,
+                }
+                sent = send_discord_message(
+                    _format_embed(
+                        "{} DCA-out nivel {:d} (${:,.0f})".format(asset.upper(), level_num, level),
+                        "orange",
+                        details,
+                    )
+                )
+                _log_alert(session, alert_type, "orange", btc_price, eth_price, float(level), sent)
+                triggered.append({"type": alert_type, "severity": "orange", "sent": sent})
+        level += dca_step
+        level_num += 1
+
+
+# ---------------------------------------------------------------------------
 # Main check
 # ---------------------------------------------------------------------------
 
@@ -233,81 +282,35 @@ def check_and_alert() -> list[dict]:
                 triggered.append({"type": alert_type, "severity": "orange", "sent": sent})
 
         # Signals 6+: BTC DCA-out -- vender BTC_DCA_OUT_PCT% cada BTC_DCA_OUT_STEP por encima de BTC_DCA_OUT_BASE
-        if btc_price is not None:
-            level = BTC_DCA_OUT_BASE
-            level_num = 1
-            while level <= BTC_DCA_OUT_MAX:
-                if btc_price >= level:
-                    alert_type = "btc_dca_out_{:d}k".format(level // 1000)
-                    if not _already_alerted(session, alert_type, hours=COOLDOWN_DCA_OUT):
-                        details = {
-                            "btc_price": btc_price,
-                            "btc_price_eur": prices.get("btc_price_eur"),
-                            "btc_change": btc_change,
-                            "eth_price": eth_price,
-                            "eth_price_eur": prices.get("eth_price_eur"),
-                            "recommendation": (
-                                "DCA-out nivel {:d} (${:,.0f}): vende el {}% de tus BTC en Trade Republic. "
-                                "Orden de mercado o limite a {:,.0f} EUR. "
-                                "Estrategia: -{}% por cada ${}k subida. "
-                                "No vendas mas de este porcentaje -- el resto sigue en DCA.".format(
-                                    level_num,
-                                    level,
-                                    BTC_DCA_OUT_PCT,
-                                    prices.get("btc_price_eur") or 0,
-                                    BTC_DCA_OUT_PCT,
-                                    BTC_DCA_OUT_STEP // 1000,
-                                )
-                            ),
-                        }
-                        sent = send_discord_message(
-                            _format_embed(
-                                "BTC DCA-out nivel {:d} (${:,.0f})".format(level_num, level),
-                                "orange",
-                                details,
-                            )
-                        )
-                        _log_alert(session, alert_type, "orange", btc_price, eth_price, float(level), sent)
-                        triggered.append({"type": alert_type, "severity": "orange", "sent": sent})
-                level += BTC_DCA_OUT_STEP
-                level_num += 1
+        _check_dca_out(
+            session, "btc", btc_price, prices, btc_price, eth_price,
+            BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP, BTC_DCA_OUT_MAX,
+            extra_details={"btc_change": btc_change},
+            recommendation_fn=lambda n, lvl, eur: (
+                "DCA-out nivel {:d} (${:,.0f}): vende el {}% de tus BTC en Trade Republic. "
+                "Orden de mercado o limite a {:,.0f} EUR. "
+                "Estrategia: -{}% por cada ${}k subida. "
+                "No vendas mas de este porcentaje -- el resto sigue en DCA.".format(
+                    n, lvl, BTC_DCA_OUT_PCT, eur, BTC_DCA_OUT_PCT, BTC_DCA_OUT_STEP // 1000,
+                )
+            ),
+            triggered=triggered,
+        )
 
         # Signals 7+: ETH DCA-out -- vender ETH_DCA_OUT_PCT% cada ETH_DCA_OUT_STEP por encima de ETH_DCA_OUT_BASE
-        if eth_price is not None:
-            level = ETH_DCA_OUT_BASE
-            level_num = 1
-            while level <= ETH_DCA_OUT_MAX:
-                if eth_price >= level:
-                    alert_type = "eth_dca_out_{:d}k".format(level // 1000)
-                    if not _already_alerted(session, alert_type, hours=COOLDOWN_DCA_OUT):
-                        details = {
-                            "btc_price": btc_price,
-                            "btc_price_eur": prices.get("btc_price_eur"),
-                            "eth_price": eth_price,
-                            "eth_price_eur": prices.get("eth_price_eur"),
-                            "mvrv": eth_mvrv,
-                            "recommendation": (
-                                "DCA-out nivel {:d} (${:,.0f}): vende el {}% de tu ETH en Trade Republic. "
-                                "Precio aprox: {:,.0f} EUR. "
-                                "NOTA: confirma que el ETH stakeado se puede vender directamente en TR.".format(
-                                    level_num,
-                                    level,
-                                    ETH_DCA_OUT_PCT,
-                                    prices.get("eth_price_eur") or 0,
-                                )
-                            ),
-                        }
-                        sent = send_discord_message(
-                            _format_embed(
-                                "ETH DCA-out nivel {:d} (${:,.0f})".format(level_num, level),
-                                "orange",
-                                details,
-                            )
-                        )
-                        _log_alert(session, alert_type, "orange", btc_price, eth_price, float(level), sent)
-                        triggered.append({"type": alert_type, "severity": "orange", "sent": sent})
-                level += ETH_DCA_OUT_STEP
-                level_num += 1
+        _check_dca_out(
+            session, "eth", eth_price, prices, btc_price, eth_price,
+            ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP, ETH_DCA_OUT_MAX,
+            extra_details={"mvrv": eth_mvrv},
+            recommendation_fn=lambda n, lvl, eur: (
+                "DCA-out nivel {:d} (${:,.0f}): vende el {}% de tu ETH en Trade Republic. "
+                "Precio aprox: {:,.0f} EUR. "
+                "NOTA: confirma que el ETH stakeado se puede vender directamente en TR.".format(
+                    n, lvl, ETH_DCA_OUT_PCT, eur,
+                )
+            ),
+            triggered=triggered,
+        )
 
     if not triggered:
         logger.info("No alerts triggered. All metrics within normal ranges.")

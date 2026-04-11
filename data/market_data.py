@@ -12,8 +12,11 @@ APIs used:
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import time
+from datetime import date, timedelta
 
 import requests
 
@@ -142,10 +145,6 @@ def fetch_sp500_change(days: int = 5) -> float | None:
     Validated threshold: -5% over 5d (research6: N=31, consistent edge).
     """
     try:
-        import csv
-        import io
-        from datetime import date, timedelta
-
         end = date.today()
         # Request extra calendar days to ensure we get enough trading days
         start = end - timedelta(days=days * 3 + 10)

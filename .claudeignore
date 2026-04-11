@@ -7,3 +7,8 @@ dashboard/templates/index.html
 # Cache de datos (ya en .gitignore)
 data/research_cache/
 data/cryptotrader.db
+
+# Infraestructura de backtesting (solo necesaria en sesiones de backtest)
+# Para trabajar en backtesting: lee estos directorios explicitamente con Read/Glob
+backtesting/
+strategies/

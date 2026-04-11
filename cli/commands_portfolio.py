@@ -126,9 +126,9 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
             for b in report["bracket_breakdown"]:
                 print(f"    Tramo {b['label']}: {b['rate_pct']:.0f}% sobre {b['taxable_eur']:,.2f} EUR -> {b['tax_eur']:,.2f} EUR")
         elif report["total_gain_eur"] < 0:
-            print(f"  Perdida neta: no hay IRPF. Compensable con ganancias futuras.")
+            print("  Perdida neta: no hay IRPF. Compensable con ganancias futuras.")
         else:
-            print(f"  Ganancia neta cero: sin IRPF.")
+            print("  Ganancia neta cero: sin IRPF.")
         return
 
     if sub == "history":

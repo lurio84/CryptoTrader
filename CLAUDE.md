@@ -77,6 +77,11 @@ python research/full_plan_simulation_2020.py
 python research/btc_crash_sensitivity.py   # Research 8: threshold sensitivity -5% a -30%
 
 python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
+
+# Research scripts (excluidos del contexto Claude via .claudeignore, leer explicitamente si es necesario)
+# python research/sp500_crash_research.py
+# python research/full_plan_simulation_2020.py
+# python research/btc_crash_sensitivity.py
 ```
 
 ## Fuentes de datos (todas publicas, sin API key)
@@ -90,7 +95,7 @@ python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 ## Convenciones
 
 - Conventional commits (hook configurado): feat:, fix:, docs:, etc.
-- Tests: pytest, 76 tests actualmente
+- Tests: pytest, 91 tests actualmente
 - NO usar caracteres unicode especiales en Python (Windows cp1252)
 - SQLAlchemy: convertir a dicts dentro del `with get_session()` antes de usar fuera del bloque.
   Patron de referencia: `_row_to_dict` en `cmd_portfolio` de `main.py`.
@@ -115,6 +120,32 @@ cli/constants.py          -- SPARPLAN_TARGETS, LAST_HALVING, halving_cycle_info(
 main.py                   -- CLI entry point (14 comandos)
 research/                 -- Scripts standalone de research (excluidos de contexto Claude)
 ```
+
+## Lo que NO hacer
+
+- NO mover `strategies/` a `research/` -- es infraestructura de backtesting usada por
+  `python main.py backtest` y cubierta por tests (257 LOC).
+- NO buscar senales on-chain adicionales de salida para BTC/ETH -- patron consolidado:
+  MVRV alto, NUPL>0.75, RSI>85, F&G>80 son momentum, no techos. Ver RESEARCH.md.
+- NO usar yfinance en `alerts/`, `digest.py`, CI ni en modulos importados por check/digest.
+- NO cambiar la cache key de GitHub Actions -- `run_id` + `restore-keys` es correcto e intencional.
+- NO crear docstrings ni comentarios en logica obvia.
+- NO agregar manejo de errores para escenarios que no pueden ocurrir.
+- NO cambiar umbrales de produccion sin backtest IS/OOS completo y aprobacion explicita.
+
+## DB Schema (resumen)
+
+SQLite en `data/cryptotrader.db`. 4 tablas relevantes:
+
+| Tabla | Columnas clave | Uso |
+|---|---|---|
+| `alert_log` | id, alert_type, severity, btc_price, eth_price, metric_value, notified, timestamp | Deduplicacion alertas |
+| `user_trade` | id, asset, asset_class, units, price_eur, fee_eur, source, trade_date | Portfolio FIFO |
+| `candle` | symbol, timestamp, open, high, low, close, volume | Datos OHLCV (backtest) |
+| `portfolio_snapshot` | id, snapshot_date, data_json | Snapshots historicos |
+
+Migracion de referencia: `data/database.py:_migrate_user_trade()` (idempotente, PRAGMA table_info).
+ORM completo en `data/models.py`.
 
 ## Protocolo de cierre de sesion
 

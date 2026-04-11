@@ -2,6 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(*)",
+      "Read(*)",
+      "Write(*)",
       "Skill(update-config)",
       "Skill(update-config:*)"
     ],
