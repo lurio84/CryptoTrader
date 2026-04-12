@@ -56,17 +56,17 @@ def cmd_tax_simulate(args: argparse.Namespace) -> None:
     real_irpf = real_report["total_irpf_eur"]
 
     # Simulated trade appended at today (no persistence)
-    synth = {
-        "date": datetime.now(),
-        "asset": asset,
-        "asset_class": "crypto" if asset in ("BTC", "ETH") else "etf",
-        "side": "sell",
-        "units": units,
-        "price_eur": price_eur,
-        "fee_eur": 0.0,
-        "source": "dca_out",
-        "notes": "SIMULATION",
-    }
+    synth = UserTrade(
+        date=datetime.now(),
+        asset=asset,
+        asset_class="crypto" if asset in ("BTC", "ETH") else "etf",
+        side="sell",
+        units=units,
+        price_eur=price_eur,
+        fee_eur=0.0,
+        source="dca_out",
+        notes="SIMULATION",
+    ).to_dict()
     sim_report = calculate_tax_report(real_trades + [synth], year)
     sim_gain = sim_report["total_gain_eur"]
     sim_irpf = sim_report["total_irpf_eur"]
@@ -267,20 +267,9 @@ def cmd_what_if(args: argparse.Namespace) -> None:
 # health-check: validate DB + APIs + last heartbeat
 # ---------------------------------------------------------------------------
 
-def cmd_health_check(args: argparse.Namespace) -> None:
-    """Run a health check on DB, external APIs and monitoring subsystem."""
-    from concurrent.futures import ThreadPoolExecutor
-    from data.market_data import (
-        fetch_prices, fetch_mvrv, fetch_funding_rate, fetch_sp500_change,
-    )
+def _check_db() -> dict:
+    """Check DB accessibility and last heartbeat. Returns {"ok": bool, "lines": [str]}."""
     from data.models import AlertLog
-
-    init_db()
-    print("CryptoTrader - Health Check")
-    print("=" * 55)
-
-    # 1. DB
-    db_ok = True
     try:
         with get_session() as session:
             alert_count = session.query(AlertLog).count()
@@ -292,32 +281,31 @@ def cmd_health_check(args: argparse.Namespace) -> None:
             )
             last_hb = last_hb_row.timestamp if last_hb_row else None
     except Exception as exc:
-        db_ok = False
-        alert_count = None
-        last_hb = None
-        print(f"  [RED] DB: ERROR {exc}")
+        return {"ok": False, "lines": [f"  [RED] DB: ERROR {exc}"]}
 
-    if db_ok:
-        print(f"  [OK]  DB: accesible ({alert_count} alertas en alert_log)")
-        if last_hb is not None:
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
-            gap_h = (now - last_hb).total_seconds() / 3600
-            status = "OK" if gap_h < 10 else ("WATCH" if gap_h < 24 else "RED")
-            print(
-                f"  [{status:<3}] Heartbeat: ultimo hace {gap_h:.1f}h "
-                f"(umbral canary: 10h)"
-            )
-        else:
-            print("  [WATCH] Heartbeat: ninguno registrado aun")
+    lines = [f"  [OK]  DB: accesible ({alert_count} alertas en alert_log)"]
+    if last_hb is not None:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        gap_h = (now - last_hb).total_seconds() / 3600
+        status = "OK" if gap_h < 10 else ("WATCH" if gap_h < 24 else "RED")
+        lines.append(
+            f"  [{status:<3}] Heartbeat: ultimo hace {gap_h:.1f}h (umbral canary: 10h)"
+        )
+    else:
+        lines.append("  [WATCH] Heartbeat: ninguno registrado aun")
+    return {"ok": True, "lines": lines}
 
-    # 2. External APIs in parallel
-    print()
-    print("  Fuentes externas (paralelas, timeout 10s):")
 
-    def _safe(future, label):
+def _check_apis() -> dict:
+    """Check external APIs in parallel. Returns {"ok": bool, "lines": [str]}."""
+    from concurrent.futures import ThreadPoolExecutor
+    from data.market_data import (
+        fetch_prices, fetch_mvrv, fetch_funding_rate, fetch_sp500_change,
+    )
+
+    def _result(future):
         try:
-            result = future.result(timeout=15)
-            return result, None
+            return future.result(timeout=15), None
         except Exception as exc:
             return None, str(exc)
 
@@ -327,39 +315,73 @@ def cmd_health_check(args: argparse.Namespace) -> None:
         f_funding = pool.submit(fetch_funding_rate)
         f_sp500 = pool.submit(fetch_sp500_change)
 
-    prices, err = _safe(f_prices, "CoinGecko")
+    lines = []
+    all_ok = True
+
+    prices, err = _result(f_prices)
     if prices and prices.get("btc_price"):
-        print(f"  [OK]  CoinGecko (prices): BTC=${prices['btc_price']:,.0f}")
+        lines.append(f"  [OK]  CoinGecko (prices): BTC=${prices['btc_price']:,.0f}")
     else:
-        print(f"  [RED] CoinGecko (prices): {err or 'no data'}")
+        lines.append(f"  [RED] CoinGecko (prices): {err or 'no data'}")
+        all_ok = False
 
-    mvrv, err = _safe(f_mvrv, "CoinMetrics")
+    mvrv, err = _result(f_mvrv)
     if mvrv is not None:
-        print(f"  [OK]  CoinMetrics (ETH MVRV): {mvrv:.3f}")
+        lines.append(f"  [OK]  CoinMetrics (ETH MVRV): {mvrv:.3f}")
     else:
-        print(f"  [RED] CoinMetrics (ETH MVRV): {err or 'no data'}")
+        lines.append(f"  [RED] CoinMetrics (ETH MVRV): {err or 'no data'}")
+        all_ok = False
 
-    funding, err = _safe(f_funding, "OKX")
+    funding, err = _result(f_funding)
     if funding is not None:
-        print(f"  [OK]  OKX (funding rate): {funding * 100:.4f}%")
+        lines.append(f"  [OK]  OKX (funding rate): {funding * 100:.4f}%")
     else:
-        print(f"  [RED] OKX (funding rate): {err or 'no data'}")
+        lines.append(f"  [RED] OKX (funding rate): {err or 'no data'}")
+        all_ok = False
 
-    sp500, err = _safe(f_sp500, "Stooq")
+    sp500, err = _result(f_sp500)
     if sp500 is not None:
-        print(f"  [OK]  Stooq (S&P 500 5d): {sp500:+.2f}%")
+        lines.append(f"  [OK]  Stooq (S&P 500 5d): {sp500:+.2f}%")
     else:
-        print(f"  [RED] Stooq (S&P 500 5d): {err or 'no data'}")
+        lines.append(f"  [RED] Stooq (S&P 500 5d): {err or 'no data'}")
+        all_ok = False
 
-    # 3. Config / webhook
-    print()
+    return {"ok": all_ok, "lines": lines}
+
+
+def _check_webhook() -> dict:
+    """Check Discord webhook configuration. Returns {"ok": bool, "line": str}."""
     try:
         from config.settings import settings
         webhook_set = bool(getattr(settings.discord, "webhook_url", None))
         status = "OK" if webhook_set else "WATCH"
-        print(f"  [{status:<3}] Discord webhook: {'configurado' if webhook_set else 'NO configurado (.env)'}")
+        return {
+            "ok": webhook_set,
+            "line": f"  [{status:<3}] Discord webhook: {'configurado' if webhook_set else 'NO configurado (.env)'}",
+        }
     except Exception as exc:
-        print(f"  [RED] Discord webhook: {exc}")
+        return {"ok": False, "line": f"  [RED] Discord webhook: {exc}"}
+
+
+def cmd_health_check(args: argparse.Namespace) -> None:
+    """Run a health check on DB, external APIs and monitoring subsystem."""
+    init_db()
+    print("CryptoTrader - Health Check")
+    print("=" * 55)
+
+    db = _check_db()
+    for line in db["lines"]:
+        print(line)
+
+    print()
+    print("  Fuentes externas (paralelas, timeout 10s):")
+    apis = _check_apis()
+    for line in apis["lines"]:
+        print(line)
+
+    print()
+    wh = _check_webhook()
+    print(wh["line"])
 
     print("=" * 55)
 
@@ -405,6 +427,27 @@ def cmd_explain_alert(args: argparse.Namespace) -> None:
             "notified": row.notified,
         }
 
+        # Context: closest alerts in time (same session)
+        ts = payload["timestamp"]
+        if ts is not None:
+            window = timedelta(hours=24)
+            nearby_rows = (
+                session.query(AlertLog)
+                .filter(AlertLog.timestamp >= ts - window)
+                .filter(AlertLog.timestamp <= ts + window)
+                .filter(AlertLog.id != payload["id"])
+                .filter(AlertLog.alert_type != "heartbeat")
+                .order_by(AlertLog.timestamp.asc())
+                .limit(10)
+                .all()
+            )
+            nearby = [
+                {"timestamp": n.timestamp, "alert_type": n.alert_type, "severity": n.severity}
+                for n in nearby_rows
+            ]
+        else:
+            nearby = []
+
     print("ALERT EXPLANATION")
     print("=" * 57)
     print(f"  id:         {payload['id']}")
@@ -420,26 +463,8 @@ def cmd_explain_alert(args: argparse.Namespace) -> None:
     if payload["metric_value"] is not None:
         print(f"  metric:     {payload['metric_value']}")
 
-    # Context: closest alerts in time
-    with get_session() as session:
-        ts = payload["timestamp"]
-        if ts is not None:
-            window = timedelta(hours=24)
-            nearby = (
-                session.query(AlertLog)
-                .filter(AlertLog.timestamp >= ts - window)
-                .filter(AlertLog.timestamp <= ts + window)
-                .filter(AlertLog.id != payload["id"])
-                .filter(AlertLog.alert_type != "heartbeat")
-                .order_by(AlertLog.timestamp.asc())
-                .limit(10)
-                .all()
-            )
-        else:
-            nearby = []
-
     if nearby:
         print()
         print(f"  Alertas cercanas (+-24h, max 10):")
         for n in nearby:
-            print(f"    {n.timestamp}  {n.alert_type:<22} {n.severity:<7}")
+            print(f"    {n['timestamp']}  {n['alert_type']:<22} {n['severity']:<7}")

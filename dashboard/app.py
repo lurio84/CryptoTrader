@@ -1,6 +1,7 @@
 """FastAPI dashboard for CryptoTrader Advisor."""
 
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,6 +22,24 @@ from alerts.discord_bot import (
 from cli.constants import halving_cycle_info
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Module-level price cache for /api/drift and /api/portfolio_pnl.
+# Not thread-safe; assumes single-worker deployment (local dashboard).
+# ---------------------------------------------------------------------------
+_price_cache: dict = {"data": None, "ts": 0.0}
+PRICE_CACHE_TTL = 60  # seconds
+
+
+def _get_cached_prices() -> dict:
+    from data.market_data import fetch_portfolio_prices_eur
+    now = time.monotonic()
+    if _price_cache["data"] is not None and now - _price_cache["ts"] < PRICE_CACHE_TTL:
+        return _price_cache["data"]
+    data = fetch_portfolio_prices_eur(include_etfs=True)
+    _price_cache["data"] = data
+    _price_cache["ts"] = now
+    return data
 
 
 @asynccontextmanager
@@ -234,11 +253,10 @@ def api_drift():
     Used by the dashboard to render live allocation bars.
     """
     from cli.constants import SPARPLAN_TARGETS, DRIFT_THRESHOLD, DRIFT_WATCH_THRESHOLD
-    from data.market_data import fetch_portfolio_prices_eur
     from data.models import UserTrade
 
     try:
-        prices = fetch_portfolio_prices_eur(include_etfs=True)
+        prices = _get_cached_prices()
     except Exception as exc:
         logger.warning("drift: price fetch failed: %s", exc)
         prices = {"btc_eur": None, "eth_eur": None, "etf_prices": {}}
@@ -298,7 +316,6 @@ def api_drift():
 @app.get("/api/portfolio_pnl")
 def api_portfolio_pnl():
     """Per-asset unrealized + realized P&L summary."""
-    from data.market_data import fetch_portfolio_prices_eur
     from data.models import UserTrade
     from data.portfolio import calculate_portfolio_status
     from alerts.discord_bot import (
@@ -307,7 +324,7 @@ def api_portfolio_pnl():
     )
 
     try:
-        prices = fetch_portfolio_prices_eur(include_etfs=True)
+        prices = _get_cached_prices()
     except Exception as exc:
         logger.warning("portfolio_pnl: price fetch failed: %s", exc)
         prices = {"btc_eur": None, "eth_eur": None, "etf_prices": {}}
@@ -467,7 +484,7 @@ def api_tax_simulate(body: TaxSimulateRequest):
     """
     from datetime import datetime as _dt
     from data.models import UserTrade
-    from data.portfolio import calculate_tax_report, compute_spanish_tax, compute_tax_headroom
+    from data.portfolio import calculate_tax_report, compute_tax_headroom
 
     asset = body.asset.upper()
     units = body.units
@@ -489,17 +506,17 @@ def api_tax_simulate(body: TaxSimulateRequest):
     real_gain = real_report["total_gain_eur"]
     real_irpf = real_report["total_irpf_eur"]
 
-    synth = {
-        "date": _dt.now(),
-        "asset": asset,
-        "asset_class": "crypto" if asset in ("BTC", "ETH") else "etf",
-        "side": "sell",
-        "units": units,
-        "price_eur": price_eur,
-        "fee_eur": 0.0,
-        "source": "dca_out",
-        "notes": "SIMULATION",
-    }
+    synth = UserTrade(
+        date=_dt.now(),
+        asset=asset,
+        asset_class="crypto" if asset in ("BTC", "ETH") else "etf",
+        side="sell",
+        units=units,
+        price_eur=price_eur,
+        fee_eur=0.0,
+        source="dca_out",
+        notes="SIMULATION",
+    ).to_dict()
     sim_report = calculate_tax_report(real_trades + [synth], year)
     sim_gain = sim_report["total_gain_eur"]
     sim_irpf = sim_report["total_irpf_eur"]

@@ -106,7 +106,16 @@ def cmd_fx(args: argparse.Namespace) -> None:
         df = df.rename(columns={"observation_date": "DATE", fred_id: "rate"})
         df = df.dropna(subset=["rate"])
         df = df[df["rate"] > 0].sort_values("DATE")
+    except requests.exceptions.RequestException as exc:
+        # error de red / timeout
+        print(f"Error de red al obtener datos FRED: {exc}")
+        return
+    except KeyError as exc:
+        # columna no encontrada en CSV -- FRED puede haber cambiado formato
+        print(f"Columna no encontrada en CSV de FRED (formato cambiado?): {exc}")
+        return
     except Exception as exc:
+        # fallback generico
         print(f"Error al parsear datos FRED: {exc}")
         return
 
