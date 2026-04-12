@@ -363,3 +363,133 @@ def test_api_portfolio_pnl_crypto_and_etf(client_with_session):
     assert "SP500" in assets
     assert data["totals"]["invested"] > 0
     assert data["totals"]["value"] > 0
+
+
+# ---------------------------------------------------------------------------
+# D6: /api/alerts_heatmap
+# ---------------------------------------------------------------------------
+
+def test_api_alerts_heatmap_empty(client):
+    resp = client.get("/api/alerts_heatmap")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "days" in data and "types" in data and "cells" in data
+    assert data["cells"] == []
+
+
+def test_api_alerts_heatmap_groups_by_day_and_type(client_with_session):
+    c, session = client_with_session
+    # Two alerts of the same type on the same day
+    _insert_alert(session, "btc_crash", "red")
+    _insert_alert(session, "btc_crash", "red")
+    _insert_alert(session, "mvrv_critical", "red")
+
+    data = c.get("/api/alerts_heatmap").json()
+    cells_by_type = {cell["type"]: cell for cell in data["cells"]}
+    assert "btc_crash" in cells_by_type
+    assert cells_by_type["btc_crash"]["count"] == 2
+    assert "mvrv_critical" in cells_by_type
+    assert cells_by_type["mvrv_critical"]["count"] == 1
+
+
+def test_api_alerts_heatmap_excludes_heartbeats(client_with_session):
+    c, session = client_with_session
+    _insert_alert(session, "heartbeat", "green")
+    _insert_alert(session, "btc_crash", "red")
+
+    data = c.get("/api/alerts_heatmap").json()
+    types = {cell["type"] for cell in data["cells"]}
+    assert "heartbeat" not in types
+    assert "btc_crash" in types
+
+
+# ---------------------------------------------------------------------------
+# D7: POST /api/tax_simulate
+# ---------------------------------------------------------------------------
+
+def test_api_tax_simulate_no_trades(client):
+    resp = client.post("/api/tax_simulate", json={
+        "asset": "BTC", "units": 0.1, "price_eur": 80000.0
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    # With no real trades, baseline gain is 0 and sim gain equals the simulated sale
+    assert "delta_irpf_eur" in data
+    assert "proceeds_eur" in data
+    assert data["proceeds_eur"] == pytest.approx(8000.0)
+
+
+def test_api_tax_simulate_invalid_units(client):
+    resp = client.post("/api/tax_simulate", json={
+        "asset": "BTC", "units": -1.0, "price_eur": 80000.0
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "error" in data
+
+
+def test_api_tax_simulate_response_shape(client):
+    resp = client.post("/api/tax_simulate", json={
+        "asset": "ETH", "units": 0.5, "price_eur": 2000.0
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    for field in ("asset", "units", "price_eur", "proceeds_eur",
+                  "delta_irpf_eur", "net_cash_eur", "bracket_before", "bracket_after"):
+        assert field in data, f"Missing field: {field}"
+    assert data["asset"] == "ETH"
+
+
+# ---------------------------------------------------------------------------
+# D8: GET /api/retirement_mc
+# ---------------------------------------------------------------------------
+
+def _make_mock_mc_result():
+    """Build a minimal MonteCarloResult-like object for mocking."""
+    from unittest.mock import MagicMock
+    r = MagicMock()
+    r.n_years = 35
+    r.n_simulations = 500
+    r.data_start_year = 2017
+    r.data_end_year = 2025
+    r.data_months = 96
+    r.years = list(range(1, 36))
+    r.p10 = [i * 1000.0 for i in range(1, 36)]
+    r.p25 = [i * 2000.0 for i in range(1, 36)]
+    r.p50 = [i * 3000.0 for i in range(1, 36)]
+    r.p75 = [i * 4000.0 for i in range(1, 36)]
+    r.p90 = [i * 5000.0 for i in range(1, 36)]
+    r.prob_reach_target = 0.72
+    r.median_at_retirement = 350_000.0
+    r.safe_withdrawal_rate_4pct = 1166.67
+    return r
+
+
+def test_api_retirement_mc_returns_200(client):
+    with patch("analysis.monte_carlo.run_monte_carlo", return_value=_make_mock_mc_result()):
+        resp = client.get("/api/retirement_mc?age=30&retire_age=65&monthly=140")
+    assert resp.status_code == 200
+
+
+def test_api_retirement_mc_response_shape(client):
+    with patch("analysis.monte_carlo.run_monte_carlo", return_value=_make_mock_mc_result()):
+        data = client.get("/api/retirement_mc?age=30&retire_age=65&monthly=140").json()
+    for key in ("n_years", "years", "p10", "p25", "p50", "p75", "p90",
+                "prob_reach_1M", "median_at_retirement", "safe_withdrawal_monthly_eur"):
+        assert key in data, f"Missing key: {key}"
+
+
+def test_api_retirement_mc_n_years_matches_params(client):
+    with patch("analysis.monte_carlo.run_monte_carlo", return_value=_make_mock_mc_result()):
+        data = client.get("/api/retirement_mc?age=40&retire_age=65&monthly=200").json()
+    assert data["n_years"] == 35  # from mock result
+    assert data["age"] == 40
+    assert data["retire_age"] == 65
+
+
+def test_api_retirement_mc_handles_mc_error(client):
+    with patch("analysis.monte_carlo.run_monte_carlo", side_effect=RuntimeError("no data")):
+        resp = client.get("/api/retirement_mc")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "error" in data

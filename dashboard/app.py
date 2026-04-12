@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from data.database import init_db, get_session
@@ -384,4 +385,223 @@ def api_portfolio_pnl():
             "value": round(total_value, 2),
             "pnl": round(total_pnl, 2),
         },
+    }
+
+
+# ---------------------------------------------------------------------------
+# D6: /api/alerts_heatmap -- alert counts grouped by day + type (last 30d)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/alerts_heatmap")
+def api_alerts_heatmap(days: int = 30):
+    """Alert heatmap: counts per (date, alert_type) for the last N days.
+
+    Returns:
+        {
+            "days": ["2026-03-01", ...],
+            "types": ["btc_crash", ...],
+            "cells": [{"date": ..., "type": ..., "count": N, "severity": ...}, ...]
+        }
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    try:
+        with get_session() as session:
+            rows = session.execute(
+                select(AlertLog)
+                .where(AlertLog.timestamp >= cutoff)
+                .where(AlertLog.alert_type != "heartbeat")
+                .order_by(AlertLog.timestamp.asc())
+            ).scalars().all()
+            alerts = [_alert_row_to_dict(r) for r in rows]
+    except Exception as exc:
+        logger.error("Failed to fetch alerts for heatmap: %s", exc)
+        return {"days": [], "types": [], "cells": []}
+
+    # Aggregate counts + representative severity per (date, type)
+    from collections import defaultdict
+    cell_data: dict[tuple[str, str], dict] = defaultdict(
+        lambda: {"count": 0, "severity": "green"}
+    )
+    _sev_order = {"red": 3, "orange": 2, "yellow": 1, "green": 0}
+    for a in alerts:
+        date_str = a["timestamp"][:10] if a["timestamp"] else ""
+        if not date_str:
+            continue
+        key = (date_str, a["alert_type"])
+        cell_data[key]["count"] += 1
+        # Keep highest severity
+        if _sev_order.get(a["severity"], 0) > _sev_order.get(cell_data[key]["severity"], 0):
+            cell_data[key]["severity"] = a["severity"]
+
+    all_days = sorted({k[0] for k in cell_data})
+    all_types = sorted({k[1] for k in cell_data})
+    cells = [
+        {
+            "date": k[0],
+            "type": k[1],
+            "count": v["count"],
+            "severity": v["severity"],
+        }
+        for k, v in sorted(cell_data.items())
+    ]
+    return {"days": all_days, "types": all_types, "cells": cells}
+
+
+# ---------------------------------------------------------------------------
+# D7: POST /api/tax_simulate -- same logic as cmd_tax_simulate, returns JSON
+# ---------------------------------------------------------------------------
+
+class TaxSimulateRequest(BaseModel):
+    asset: str
+    units: float
+    price_eur: float
+    year: int | None = None
+
+
+@app.post("/api/tax_simulate")
+def api_tax_simulate(body: TaxSimulateRequest):
+    """Simulate a hypothetical sale and return IRPF impact as JSON.
+
+    Mirrors cmd_tax_simulate (cli/commands_decision.py) but returns structured
+    data instead of printing. Does NOT persist anything.
+    """
+    from datetime import datetime as _dt
+    from data.models import UserTrade
+    from data.portfolio import calculate_tax_report, compute_spanish_tax, compute_tax_headroom
+
+    asset = body.asset.upper()
+    units = body.units
+    price_eur = body.price_eur
+    year = body.year or _dt.now().year
+
+    if units <= 0 or price_eur <= 0:
+        return {"error": "units and price_eur must be positive"}
+
+    try:
+        with get_session() as session:
+            rows = session.query(UserTrade).all()
+            real_trades = [t.to_dict() for t in rows]
+    except Exception as exc:
+        logger.error("tax_simulate: DB error: %s", exc)
+        return {"error": str(exc)}
+
+    real_report = calculate_tax_report(real_trades, year)
+    real_gain = real_report["total_gain_eur"]
+    real_irpf = real_report["total_irpf_eur"]
+
+    synth = {
+        "date": _dt.now(),
+        "asset": asset,
+        "asset_class": "crypto" if asset in ("BTC", "ETH") else "etf",
+        "side": "sell",
+        "units": units,
+        "price_eur": price_eur,
+        "fee_eur": 0.0,
+        "source": "dca_out",
+        "notes": "SIMULATION",
+    }
+    sim_report = calculate_tax_report(real_trades + [synth], year)
+    sim_gain = sim_report["total_gain_eur"]
+    sim_irpf = sim_report["total_irpf_eur"]
+
+    proceeds = units * price_eur
+    delta_irpf = sim_irpf - real_irpf
+    net_cash = proceeds - delta_irpf
+
+    headroom_before = compute_tax_headroom(max(real_gain, 0))
+    headroom_after = compute_tax_headroom(max(sim_gain, 0))
+
+    return {
+        "asset": asset,
+        "units": units,
+        "price_eur": price_eur,
+        "year": year,
+        "proceeds_eur": round(proceeds, 2),
+        "gain_before_eur": round(real_gain, 2),
+        "gain_after_eur": round(sim_gain, 2),
+        "delta_gain_eur": round(sim_gain - real_gain, 2),
+        "irpf_before_eur": round(real_irpf, 2),
+        "irpf_after_eur": round(sim_irpf, 2),
+        "delta_irpf_eur": round(delta_irpf, 2),
+        "net_cash_eur": round(net_cash, 2),
+        "effective_tax_rate_pct": round(delta_irpf / proceeds * 100 if proceeds > 0 else 0, 2),
+        "bracket_before": headroom_before["current_bracket_label"],
+        "bracket_after": headroom_after["current_bracket_label"],
+        "headroom_after_eur": headroom_after["headroom_eur"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# D8: GET /api/retirement_mc -- Monte Carlo projection with query params
+# ---------------------------------------------------------------------------
+
+@app.get("/api/retirement_mc")
+def api_retirement_mc(
+    age: int = 30,
+    retire_age: int = 65,
+    monthly: float = 140.0,
+    return_rate: float = 0.0,
+    inflation: float = 0.0,
+    n_simulations: int = 500,
+):
+    """Run a fast Monte Carlo retirement projection and return percentile bands.
+
+    Uses analysis/monte_carlo.run_monte_carlo with reduced n_simulations for
+    interactive response time (<3s on warm cache).
+    Requires yfinance data (cached in data/research_cache/). Local-only.
+
+    Query params:
+        age: current age (default 30)
+        retire_age: retirement age (default 65)
+        monthly: monthly DCA in EUR (default 140)
+        return_rate: ignored (bootstrap uses historical returns; kept for UI)
+        inflation: annual inflation to deflate to real EUR (default 0.0)
+        n_simulations: number of paths (default 500 for speed)
+    """
+    try:
+        from analysis.monte_carlo import run_monte_carlo
+    except ImportError as exc:
+        return {"error": f"yfinance not available: {exc}"}
+
+    n_years = max(retire_age - age, 1)
+    n_sim = max(min(n_simulations, 2000), 50)  # clamp 50-2000
+
+    try:
+        result = run_monte_carlo(
+            n_years=n_years,
+            monthly_contribution_eur=monthly,
+            n_simulations=n_sim,
+        )
+    except Exception as exc:
+        logger.warning("retirement_mc: simulation failed: %s", exc)
+        return {"error": str(exc)}
+
+    # Deflate if inflation > 0
+    def _deflate(values: list[float]) -> list[float]:
+        if inflation <= 0:
+            return values
+        return [
+            v / ((1 + inflation) ** yr)
+            for yr, v in zip(result.years, values)
+        ]
+
+    return {
+        "n_years": result.n_years,
+        "n_simulations": result.n_simulations,
+        "age": age,
+        "retire_age": retire_age,
+        "monthly_eur": monthly,
+        "inflation": inflation,
+        "data_start_year": result.data_start_year,
+        "data_end_year": result.data_end_year,
+        "data_months": result.data_months,
+        "years": result.years,
+        "p10": _deflate(result.p10),
+        "p25": _deflate(result.p25),
+        "p50": _deflate(result.p50),
+        "p75": _deflate(result.p75),
+        "p90": _deflate(result.p90),
+        "prob_reach_1M": result.prob_reach_target,
+        "median_at_retirement": result.median_at_retirement,
+        "safe_withdrawal_monthly_eur": result.safe_withdrawal_rate_4pct,
     }
