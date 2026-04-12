@@ -27,6 +27,7 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 | eth_dca_out_Xk         | ETH >= $3k (+$1k steps)                   | Vender 3% ETH en TR  | orange    | 30d   |
 | dead_canary            | Sin heartbeat en >10h (check caido)       | Verificar GH Actions | red       | 6h    |
 | rebalance_drift_ASSET  | Drift >10pp vs target (cmd drift-check)   | Rebalancear cartera  | orange    | 7d    |
+| tax_headroom_low       | Margen IRPF < threshold (cmd local)       | Revisar antes DCA-out| yellow    | 7d    |
 | heartbeat              | Registro tecnico al final de cada check   | (no Discord)         | green     | -     |
 
 ## Decisiones arquitectura activas
@@ -43,8 +44,12 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 - Digest incluye bloque "Portfolio actual" (crypto siempre, ETFs si yfinance disponible).
 - Digest incluye linea "IRPF est.: X EUR (si vendieras hoy)" si hay ganancias no realizadas en BTC/ETH.
 - Digest incluye "Margen IRPF: X EUR hasta siguiente tramo" si hay ganancias realizadas en el anno.
+- Digest incluye "Staking ETH YYYY: +X EUR" si hay staking en el anno en curso.
+- Digest incluye bloque "Asignacion vs targets": % actual de cada activo vs SPARPLAN_TARGETS con drift.
+- Digest incluye bloque "Correlacion 30d": BTC/SP500, ETH/SP500, BTC/ETH (Pearson, retornos diarios).
 - Digest guarda snapshot semanal en `user_portfolio_snapshot` (idempotente por semana ISO).
 - Dashboard: endpoint `/api/alerts?days=30` (excluye heartbeats por defecto), `/api/snapshots`.
+- `tax-headroom --notify --threshold N`: envia Discord si margen IRPF < N EUR (LOCAL ONLY, dedup 7d).
 - `drift-check` muestra "Para rebalancear: Compra/Vende X EUR de ASSET" para activos con drift >10pp.
 - `user_trade.side`: valores validos: "buy", "sell", "dividend", "staking". Sin CHECK constraint en DB.
 - `user_portfolio_snapshot`: tabla nueva (no tocar `portfolio_snapshots` que es infraestructura backtest).
@@ -53,7 +58,8 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 ## Sistema en produccion
 
 GitHub Actions: check cada 4h (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC).
-Digest semanal: domingos 09:00 UTC. Secret DISCORD_WEBHOOK_URL en el repo.
+Digest semanal: domingos 09:00 UTC. DB cleanup mensual: dia 1 de cada mes 03:00 UTC.
+Secret DISCORD_WEBHOOK_URL en el repo.
 
 ## Setup
 
@@ -85,6 +91,7 @@ python main.py portfolio tax-report [--year 2024] [--csv]  # Informe IRPF anual 
 python main.py portfolio add-dividend --asset REALTY_INCOME --amount-eur 12.50 [--date 2024-03-15]
 python main.py portfolio add-staking  --asset ETH --units 0.005 --price-eur 1800 [--date 2024-03-15]
 python main.py tax-headroom [--year 2024]                  # Margen IRPF: realizadas vs tramo actual
+python main.py tax-headroom --notify [--threshold 2000]    # Envia Discord si margen < threshold (LOCAL)
 
 # Monte Carlo jubilacion
 python main.py retirement-plan [--age 35 --retire-age 60 --target-eur 800000]

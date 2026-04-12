@@ -481,3 +481,40 @@ def cmd_tax_headroom(args: argparse.Namespace) -> None:
     else:
         print("  Sin plusvalias no realizadas detectadas (precio no disponible o posicion en perdida).")
     print()
+
+    # Discord notification if margin is below threshold
+    if getattr(args, "notify", False) and realized > 0:
+        headroom_eur = headroom_info.get("headroom_eur")
+        threshold = getattr(args, "threshold", 2000)
+        if headroom_eur is not None and headroom_eur < threshold:
+            from alerts.discord_bot import (
+                send_discord_message, _format_embed, _already_alerted, _log_alert,
+                COOLDOWN_TAX_HEADROOM,
+            )
+            from data.database import init_db, get_session
+            init_db()
+            with get_session() as session:
+                if not _already_alerted(session, "tax_headroom_low", COOLDOWN_TAX_HEADROOM):
+                    details = (
+                        "Margen IRPF: {:,.0f} EUR hasta tramo {} "
+                        "(plusvalias realizadas: {:,.0f} EUR). "
+                        "Revisa antes de ejecutar DCA-out.".format(
+                            headroom_eur, headroom_info["current_bracket_label"], realized
+                        )
+                    )
+                    embed = _format_embed("tax_headroom_low", "yellow", details)
+                    sent = send_discord_message(embed)
+                    _log_alert(session, "tax_headroom_low", "yellow",
+                               btc_price_eur, eth_price_eur, headroom_eur, sent)
+                    if sent:
+                        print("  [Discord] Alerta enviada: margen {:,.0f} EUR < {:,.0f} EUR threshold.".format(
+                            headroom_eur, threshold
+                        ))
+                    else:
+                        print("  [Discord] Alerta en cooldown o fallo de envio.")
+        elif headroom_eur is None:
+            print("  [--notify] Tramo maximo alcanzado -- sin margen que notificar.")
+        else:
+            print("  [--notify] Margen {:,.0f} EUR >= threshold {:,.0f} EUR -- sin alerta.".format(
+                headroom_eur, threshold
+            ))

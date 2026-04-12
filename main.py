@@ -143,6 +143,8 @@ def main() -> None:
     # tax-headroom
     p_headroom = subparsers.add_parser("tax-headroom", help="Margen IRPF del anno: plusvalias realizadas vs tramo actual")
     p_headroom.add_argument("--year", type=int, default=None, help="Anno fiscal (default: anno en curso)")
+    p_headroom.add_argument("--notify", action="store_true", help="Enviar alerta Discord si margen < threshold")
+    p_headroom.add_argument("--threshold", type=int, default=2000, help="EUR de margen minimo para notificar (default: 2000)")
 
     # db-cleanup
     p_db_cleanup = subparsers.add_parser("db-cleanup", help="Purgar registros viejos de alert_log")

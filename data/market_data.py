@@ -192,3 +192,73 @@ def fetch_fear_greed() -> dict:
     except Exception as e:
         logger.error("Failed to fetch Fear & Greed: %s", e)
         return {"fear_greed_value": None, "fear_greed_label": "N/A"}
+
+
+def fetch_price_history(asset: str, days: int = 30) -> list[float] | None:
+    """Fetch daily closing prices for BTC or ETH from CoinGecko.
+
+    Args:
+        asset: CoinGecko coin id, e.g. 'bitcoin' or 'ethereum'.
+        days: Number of calendar days to fetch (default 30).
+
+    Returns list of daily close prices in USD, or None on failure.
+    CoinGecko free tier returns one price per day for days > 1.
+    """
+    try:
+        url = "https://api.coingecko.com/api/v3/coins/{}/market_chart".format(asset)
+        resp = _get_with_retry(url, params={"vs_currency": "usd", "days": days, "interval": "daily"}, timeout=15)
+        prices = resp.json().get("prices", [])
+        return [float(p[1]) for p in prices] if prices else None
+    except Exception as e:
+        logger.error("Failed to fetch price history for %s: %s", asset, e)
+        return None
+
+
+def fetch_sp500_history(days: int = 30) -> list[float] | None:
+    """Fetch daily closing prices for S&P 500 (SPY) from Stooq.
+
+    Returns list of daily close prices sorted ascending by date, or None on failure.
+    """
+    try:
+        end = date.today()
+        start = end - timedelta(days=days * 2 + 10)
+        url = (
+            "https://stooq.com/q/d/l/?s=spy.us&d1={}&d2={}&i=d".format(
+                start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
+            )
+        )
+        resp = _get_with_retry(url, timeout=15)
+        reader = csv.DictReader(io.StringIO(resp.text))
+        rows = [r for r in reader if r.get("Close") and r["Close"] != "null"]
+        if len(rows) < 5:
+            return None
+        rows.sort(key=lambda r: r.get("Date", ""))
+        closes = [float(r["Close"]) for r in rows]
+        return closes[-days:] if len(closes) >= days else closes
+    except Exception as e:
+        logger.error("Failed to fetch S&P 500 history from Stooq: %s", e)
+        return None
+
+
+def calc_correlation(series_a: list[float], series_b: list[float]) -> float | None:
+    """Calculate Pearson correlation of daily returns between two price series.
+
+    Returns correlation coefficient [-1, 1], or None if insufficient data.
+    Uses stdlib statistics.correlation (Python 3.10+).
+    """
+    import statistics
+
+    min_len = min(len(series_a), len(series_b))
+    if min_len < 10:
+        return None
+    a = series_a[-min_len:]
+    b = series_b[-min_len:]
+    returns_a = [(a[i] - a[i - 1]) / a[i - 1] for i in range(1, len(a)) if a[i - 1] != 0]
+    returns_b = [(b[i] - b[i - 1]) / b[i - 1] for i in range(1, len(b)) if b[i - 1] != 0]
+    min_ret = min(len(returns_a), len(returns_b))
+    if min_ret < 9:
+        return None
+    try:
+        return statistics.correlation(returns_a[:min_ret], returns_b[:min_ret])
+    except Exception:
+        return None

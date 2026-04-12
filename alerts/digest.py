@@ -12,7 +12,10 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy import select
 
 from data.database import init_db, get_session
-from data.market_data import fetch_prices, fetch_mvrv, fetch_funding_rate, fetch_sp500_change
+from data.market_data import (
+    fetch_prices, fetch_mvrv, fetch_funding_rate, fetch_sp500_change,
+    fetch_price_history, fetch_sp500_history, calc_correlation,
+)
 from data.models import AlertLog
 from alerts.discord_bot import (
     _already_alerted,
@@ -87,17 +90,36 @@ def _get_portfolio_summary(btc_price_eur, eth_price_eur) -> dict:
 
     etf_total = 0.0
     etf_invested = 0.0
-    for asset in ("SP500", "SEMICONDUCTORS", "REALTY_INCOME", "URANIUM"):
+    etf_key_map = {
+        "SP500": "sp500_value",
+        "SEMICONDUCTORS": "semis_value",
+        "REALTY_INCOME": "realty_value",
+        "URANIUM": "uranium_value",
+    }
+    for asset, value_key in etf_key_map.items():
         price = etf_prices.get(asset)
         if price and trades_by_asset.get(asset):
             s = calculate_portfolio_status(asset, trades_by_asset[asset], price,
                                            1_000_000, 1)
-            etf_total += s["current_value_eur"]
+            val = s["current_value_eur"]
+            result[value_key] = val
+            etf_total += val
             etf_invested += s.get("total_invested_eur", 0.0)
 
     if etf_total > 0:
         result["etf_value"] = etf_total
         result["etf_pnl"] = etf_total - etf_invested
+
+    # Staking yield YTD (ETH staking rewards, informational for IRPF)
+    current_year = datetime.now(timezone.utc).year
+    staking_ytd = sum(
+        t["units"] * t["price_eur"]
+        for t in trades_by_asset.get("ETH", [])
+        if t.get("side") == "staking" and t.get("date") is not None
+        and t["date"].year == current_year
+    )
+    if staking_ytd > 0:
+        result["staking_ytd_eur"] = staking_ytd
 
     return result
 
@@ -111,6 +133,38 @@ def _halving_cycle_text() -> str:
     if info["in_risk_zone"]:
         return "Mes {:.0f}/48 desde halving abr-2024 -- ZONA DE RIESGO (meses 18-24: -7.2% a 30d vs baseline)".format(months)
     return "Mes {:.0f}/48 desde halving abr-2024 -- fuera de zona de riesgo".format(months)
+
+
+def _allocation_block(portfolio: dict) -> str | None:
+    """Return formatted allocation vs Sparplan targets string, or None if insufficient data."""
+    from cli.constants import SPARPLAN_TARGETS
+
+    key_map = {
+        "BTC": "btc_value",
+        "ETH": "eth_value",
+        "SP500": "sp500_value",
+        "SEMICONDUCTORS": "semis_value",
+        "REALTY_INCOME": "realty_value",
+        "URANIUM": "uranium_value",
+    }
+    values = {asset: portfolio.get(key, 0.0) for asset, key in key_map.items()}
+    total = sum(values.values())
+    if total <= 0:
+        return None
+
+    lines = []
+    for asset, target_pct in SPARPLAN_TARGETS.items():
+        val = values.get(asset, 0.0)
+        actual_pct = val / total * 100
+        drift = actual_pct - target_pct
+        drift_str = ""
+        if abs(drift) >= 2:
+            marker = "! " if abs(drift) >= 10 else ""
+            drift_str = " ({}{:+.1f}pp)".format(marker, drift)
+        lines.append("{}: {:.1f}%{} (target {:.1f}%)".format(
+            asset, actual_pct, drift_str, target_pct
+        ))
+    return "\n".join(lines)
 
 
 def send_weekly_digest() -> bool:
@@ -132,6 +186,14 @@ def send_weekly_digest() -> bool:
     eth_mvrv = fetch_mvrv("eth")
     btc_mvrv = fetch_mvrv("btc")
     sp500_change = fetch_sp500_change()
+
+    # Correlation data (non-blocking -- None if API fails)
+    btc_hist = fetch_price_history("bitcoin", 30)
+    eth_hist = fetch_price_history("ethereum", 30)
+    sp500_hist = fetch_sp500_history(30)
+    corr_btc_sp500 = calc_correlation(btc_hist, sp500_hist) if btc_hist and sp500_hist else None
+    corr_eth_sp500 = calc_correlation(eth_hist, sp500_hist) if eth_hist and sp500_hist else None
+    corr_btc_eth = calc_correlation(btc_hist, eth_hist) if btc_hist and eth_hist else None
 
     btc_price = prices.get("btc_price")
     btc_price_eur = prices.get("btc_price_eur")
@@ -213,6 +275,20 @@ def send_weekly_digest() -> bool:
             sp500_str += " -- caida notable"
     fields.append({"name": "S&P500", "value": sp500_str, "inline": True})
 
+    # Block 2b: Correlacion 30d (informacional)
+    def _corr_label(c: float | None) -> str:
+        if c is None:
+            return "N/A"
+        label = "alta" if abs(c) >= 0.7 else ("media" if abs(c) >= 0.4 else "baja")
+        return "{:.2f} ({})".format(c, label)
+
+    corr_lines = [
+        "BTC/SP500: {}".format(_corr_label(corr_btc_sp500)),
+        "ETH/SP500: {}".format(_corr_label(corr_eth_sp500)),
+        "BTC/ETH:   {}".format(_corr_label(corr_btc_eth)),
+    ]
+    fields.append({"name": "Correlacion 30d", "value": "\n".join(corr_lines), "inline": False})
+
     # Block 3: Halving cycle
     fields.append({"name": "Ciclo Halving", "value": _halving_cycle_text(), "inline": False})
 
@@ -248,7 +324,18 @@ def send_weekly_digest() -> bool:
                 lines.append("Margen IRPF: {:,.0f} EUR hasta siguiente tramo ({})".format(
                     hroom["headroom_eur"], hroom["current_bracket_label"]
                 ))
+        staking_ytd = portfolio.get("staking_ytd_eur", 0.0)
+        if staking_ytd and staking_ytd > 0:
+            lines.append("Staking ETH {}: +{:.2f} EUR".format(
+                datetime.now(timezone.utc).year, staking_ytd
+            ))
         fields.append({"name": "Portfolio actual", "value": "\n".join(lines), "inline": False})
+
+    # Block 3c: Allocation vs Sparplan targets
+    if portfolio:
+        alloc = _allocation_block(portfolio)
+        if alloc:
+            fields.append({"name": "Asignacion vs targets", "value": alloc, "inline": False})
 
     # Block 4: Proximas senales -- distancia a cada umbral de alerta
     signals_lines = []

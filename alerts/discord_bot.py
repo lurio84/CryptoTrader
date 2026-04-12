@@ -54,6 +54,9 @@ COOLDOWN_DCA_OUT    = 720   # 30 days
 CANARY_THRESHOLD_HOURS = 10
 COOLDOWN_DEAD_CANARY   = 6
 
+# Tax headroom: local-only alert (run manually before DCA-out sales)
+COOLDOWN_TAX_HEADROOM  = 168  # 7 days
+
 
 # ---------------------------------------------------------------------------
 # Message formatting
