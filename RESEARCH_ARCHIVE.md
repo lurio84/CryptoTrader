@@ -24,6 +24,8 @@ Todas estas senales se probaron y DESTRUYEN o NO MEJORAN el retorno vs hold DCA:
 | BTC MVRV < 1.0 como compra | delta=-17.2pp a 30d, WR=31%, OOS delta=-10.4pp (WR=0%). DESCARTADO. | btc_mvrv_research |
 | BTC MVRV < 0.8 como compra | delta=-4.3pp a 30d, WR=73% (ilusion), N=11. DESCARTADO. | btc_mvrv_research |
 | ETH/BTC percentil 10 | p>0.70 en todos los horizontes, OOS negativo | eth_btc_ratio_research |
+| DXY_5d <= -2% (buy BTC 7d)   | N_OOS=4 insuficiente, solo 6 eventos en 11 anos (DTWEXBGS) | dxy_btc_correlation_research |
+| DXY_10d <= -1.5% (buy BTC 14d) | p_IS=0.488, delta ~0 a 3/7/14d, edge a 30d dominado por drift | dxy_btc_correlation_research |
 
 ---
 
@@ -118,3 +120,29 @@ Hipotesis: ETH/BTC al percentil 10 de 180d rolling = ETH infravalorado = outperf
 | 30d       | 132 | -1.2pp | 0.6612 | 42% | +2.7 / -1.4% | DISCARD |
 
 **DISCARD.** p >> 0.70 en todos los horizontes. Delta negativo. OOS negativo a 14d y 30d. La infravaloracion relativa no predice outperformance a corto plazo.
+
+---
+
+## Research R4: DXY lead/lag como senal de compra BTC (2026-04)
+
+Script: `research/dxy_btc_correlation_research.py`
+Cache: `data/research_cache/dxy_btc_correlation_results.txt` + `dxy_daily.csv`
+
+Hipotesis: caidas bruscas del Broad Dollar Index (FRED DTWEXBGS) anticipan subidas de BTC con lag 3-14d. Fuente FRED CSV publico sin API key.
+
+Metodologia: split 70/30 IS/OOS (<2022 / >=2022), Mann-Whitney U p<0.05, bootstrap 95% CI (N=10.000), cooldown 7d entre senales, horizontes 3/7/14/30d. Regla PASS: p_IS<0.05 AND OOS>0 AND N_OOS>=10.
+
+Dos parametrizaciones testeadas (sin cherry-picking):
+
+| Senal | Regla | N | N_IS | N_OOS | delta (primary H) | p_IS | OOS mean | Veredicto |
+|-------|-------|---|------|-------|-------------------|------|----------|-----------|
+| A | DXY_5d <= -2%, H=7d   |  6 |  2 |  4 | +2.8% | -     | +1.2% | DISCARD (N_OOS=4 < 10) |
+| B | DXY_10d <= -1.5%, H=14d | 57 | 31 | 26 | +0.1% | 0.488 | +3.3% | DISCARD (p_IS=0.488) |
+
+Observaciones:
+- DTWEXBGS (broad goods+services) es mucho menos volatil que el DXY futures clasico: -2% en 5d solo ocurre 6 veces en 11 anos, insuficiente para OOS.
+- Con el umbral menos restrictivo (B, -1.5% en 10d) hay 57 eventos pero el delta es casi cero a 3/7/14d y solo aparece a 30d (+2.9%, p=0.124). El 30d esta dominado por drift alcista de BTC, no por la senal DXY.
+- La correlacion negativa DXY/BTC existe de forma contemporanea, pero no hay edge direccional utilizable con lag 1-14d bajo esta metodologia.
+- FRED funciono en primera llamada (no hizo falta fallback a Stooq dx.f).
+
+**DISCARD.** No implementar alerta. La relacion macro USD/BTC es informativa pero no aporta edge estadistico robusto al sistema existente (BTC crash 24h, S&P500 crash, DCA-out).

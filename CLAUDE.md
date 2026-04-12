@@ -110,6 +110,7 @@ python main.py retirement-plan --inflation 0.025            # Con deflacion a EU
 python research/sp500_crash_research.py
 python research/full_plan_simulation_2020.py
 python research/btc_crash_sensitivity.py   # Research 8: threshold sensitivity -5% a -30%
+python research/dxy_btc_correlation_research.py  # Research R4: DXY lead/lag (DISCARD, ver ARCHIVE)
 
 python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 ```
