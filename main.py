@@ -8,6 +8,7 @@ from cli.commands_portfolio import cmd_portfolio, cmd_tax_headroom
 from cli.commands_analysis import cmd_rebalance, cmd_retirement_plan
 from cli.commands_data import cmd_collect, cmd_update, cmd_backtest, cmd_sentiment, cmd_dca_backtest, cmd_info, STRATEGIES
 from cli.commands_decision import cmd_tax_simulate, cmd_what_if, cmd_health_check, cmd_explain_alert
+from cli.commands_projection import cmd_sparplan_projection, cmd_fx, cmd_compare_periods
 
 
 def main() -> None:
@@ -175,6 +176,24 @@ def main() -> None:
     p_explain.add_argument("--id", type=int, default=None, help="ID de la alerta en alert_log")
     p_explain.add_argument("--type", default=None, help="Alert type (muestra la mas reciente)")
 
+    # sparplan-projection
+    p_proj = subparsers.add_parser("sparplan-projection", help="Proyeccion determinista Sparplan a N meses")
+    p_proj.add_argument("--months", type=int, default=24, help="Horizonte en meses (default: 24)")
+    p_proj.add_argument("--return", type=float, default=0.15, dest="ret",
+                        help="Retorno anual esperado (0.15 = 15%%, default: 0.15)")
+
+    # fx
+    p_fx = subparsers.add_parser("fx", help="Tipo de cambio EUR/USD: spot + 30d + ATH/ATL (FRED)")
+    p_fx.add_argument("--pair", default="EURUSD", help="Par de divisas (default: EURUSD)")
+
+    # compare-periods
+    p_cmp = subparsers.add_parser("compare-periods", help="Comparar retorno/vol/correlacion entre dos periodos")
+    p_cmp.add_argument("--asset", required=True,
+                       choices=["BTC", "ETH", "SP500", "SEMICONDUCTORS", "REALTY_INCOME", "URANIUM"],
+                       help="Activo a analizar")
+    p_cmp.add_argument("--p1", required=True, help="Periodo 1: START:END (YYYY-MM-DD:YYYY-MM-DD)")
+    p_cmp.add_argument("--p2", required=True, help="Periodo 2: START:END (YYYY-MM-DD:YYYY-MM-DD)")
+
     # info
     subparsers.add_parser("info", help="Show configuration")
 
@@ -199,8 +218,11 @@ def main() -> None:
         "what-if":        cmd_what_if,
         "health-check":   cmd_health_check,
         "explain-alert":  cmd_explain_alert,
-        "db-cleanup":     cmd_db_cleanup,
-        "info":           cmd_info,
+        "db-cleanup":          cmd_db_cleanup,
+        "sparplan-projection": cmd_sparplan_projection,
+        "fx":                  cmd_fx,
+        "compare-periods":     cmd_compare_periods,
+        "info":                cmd_info,
     }
 
     if args.command in commands:
