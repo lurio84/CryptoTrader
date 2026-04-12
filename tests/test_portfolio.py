@@ -1,10 +1,20 @@
 """Tests for data/portfolio.py -- FIFO cost basis and IRPF Spain tax calculation."""
 
+import os
+import tempfile
 from datetime import datetime
 
 import pytest
 
-from data.portfolio import FIFOQueue, compute_spanish_tax, calculate_portfolio_status
+from data.portfolio import (
+    FIFOQueue,
+    compute_spanish_tax,
+    calculate_portfolio_status,
+    calculate_tax_report,
+    build_xirr_cash_flows,
+    calculate_xirr,
+    csv_to_trades,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -128,3 +138,174 @@ def test_portfolio_empty_trades():
     assert result["units_held"] == 0.0
     assert result["buy_count"] == 0
     assert result["irpf_estimate_eur"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# calculate_tax_report
+# ---------------------------------------------------------------------------
+
+def test_tax_report_basic_gain():
+    """Buy 1 BTC at 30k, sell 1 BTC at 50k in 2024 -> 20k gain."""
+    trades = [
+        _trade("2023-01-01", "buy",  1.0, 30_000.0, fee_eur=0.0),
+        _trade("2024-06-01", "sell", 1.0, 50_000.0, fee_eur=0.0),
+    ]
+    result = calculate_tax_report(trades, year=2024)
+
+    assert len(result["rows"]) == 1
+    assert abs(result["total_gain_eur"] - 20_000.0) < 0.01
+    assert result["total_irpf_eur"] > 0
+    assert len(result["bracket_breakdown"]) >= 1
+    row = result["rows"][0]
+    assert row["asset"] == "BTC"
+    assert abs(row["gain_eur"] - 20_000.0) < 0.01
+
+
+def test_tax_report_year_filter():
+    """FIFO state is maintained across years; each year only sees its own sells."""
+    trades = [
+        _trade("2022-01-01", "buy",  1.0, 20_000.0, fee_eur=0.0),
+        _trade("2023-06-01", "sell", 0.5, 30_000.0, fee_eur=0.0),
+        _trade("2024-06-01", "sell", 0.5, 40_000.0, fee_eur=0.0),
+    ]
+    result_2023 = calculate_tax_report(trades, year=2023)
+    result_2024 = calculate_tax_report(trades, year=2024)
+
+    assert len(result_2023["rows"]) == 1
+    assert len(result_2024["rows"]) == 1
+    # 2023: 0.5 BTC sold at 30k, cost basis 10k -> gain 5k
+    assert abs(result_2023["total_gain_eur"] - 5_000.0) < 1.0
+    # 2024: 0.5 BTC sold at 40k, remaining cost basis 10k -> gain 10k
+    assert abs(result_2024["total_gain_eur"] - 10_000.0) < 1.0
+
+
+def test_tax_report_no_sells_in_year():
+    """No sells in requested year -> empty rows, zero gain and tax."""
+    trades = [_trade("2023-01-01", "buy", 1.0, 30_000.0, fee_eur=0.0)]
+    result = calculate_tax_report(trades, year=2024)
+
+    assert result["rows"] == []
+    assert result["total_gain_eur"] == 0.0
+    assert result["total_irpf_eur"] == 0.0
+    assert result["bracket_breakdown"] == []
+
+
+# ---------------------------------------------------------------------------
+# build_xirr_cash_flows + calculate_xirr
+# ---------------------------------------------------------------------------
+
+def test_xirr_cash_flows_buy_no_sell():
+    """Single buy, no sell -> one negative flow + terminal positive (current value)."""
+    trades = [_trade("2023-01-01", "buy", 1.0, 30_000.0, fee_eur=0.0)]
+    flows = build_xirr_cash_flows(trades, current_price_eur=45_000.0)
+
+    assert len(flows) == 2
+    assert flows[0][1] < 0           # buy is outflow
+    assert flows[1][1] > 0           # current value is inflow
+    assert abs(flows[0][1] - (-30_000.0)) < 0.01
+    assert abs(flows[1][1] - 45_000.0) < 0.01
+
+
+def test_xirr_cash_flows_fully_sold():
+    """Buy then fully sell -> two flows, no terminal flow (units_remaining == 0)."""
+    trades = [
+        _trade("2023-01-01", "buy",  1.0, 30_000.0, fee_eur=0.0),
+        _trade("2023-06-01", "sell", 1.0, 40_000.0, fee_eur=0.0),
+    ]
+    flows = build_xirr_cash_flows(trades, current_price_eur=40_000.0)
+
+    assert len(flows) == 2
+    assert flows[0][1] < 0   # buy outflow
+    assert flows[1][1] > 0   # sell inflow
+
+
+def test_calculate_xirr_too_few_flows():
+    """Fewer than 2 cash flows -> None."""
+    assert calculate_xirr([]) is None
+    assert calculate_xirr([(datetime(2023, 1, 1), -1_000.0)]) is None
+
+
+def test_calculate_xirr_known_return():
+    """Buy 30k, worth 45k exactly one year later -> ~50% annualized XIRR."""
+    flows = [
+        (datetime(2023, 1, 1), -30_000.0),
+        (datetime(2024, 1, 1),  45_000.0),
+    ]
+    result = calculate_xirr(flows)
+    assert result is not None
+    assert abs(result - 0.50) < 0.02
+
+
+def test_calculate_xirr_no_solution():
+    """All-negative cash flows -> no valid rate -> None."""
+    flows = [
+        (datetime(2023, 1, 1), -1_000.0),
+        (datetime(2024, 1, 1), -2_000.0),
+    ]
+    assert calculate_xirr(flows) is None
+
+
+# ---------------------------------------------------------------------------
+# csv_to_trades
+# ---------------------------------------------------------------------------
+
+def _write_tmp_csv(content: str) -> str:
+    f = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="utf-8")
+    f.write(content)
+    f.close()
+    return f.name
+
+
+def test_csv_to_trades_valid():
+    """Valid CSV row is parsed into a correct trade dict."""
+    csv_content = (
+        "date,asset,side,units,price_eur,fee_eur,source\n"
+        "2024-01-15,BTC,buy,0.001,40000.00,0.00,sparplan\n"
+    )
+    path = _write_tmp_csv(csv_content)
+    try:
+        trades = csv_to_trades(path)
+        assert len(trades) == 1
+        t = trades[0]
+        assert t["asset"] == "BTC"
+        assert t["side"] == "buy"
+        assert abs(t["units"] - 0.001) < 1e-9
+        assert abs(t["price_eur"] - 40_000.0) < 0.01
+        assert t["date"] == datetime(2024, 1, 15)
+        assert t["source"] == "sparplan"
+    finally:
+        os.unlink(path)
+
+
+def test_csv_to_trades_unknown_asset():
+    """Unknown asset raises ValueError mentioning 'unknown asset'."""
+    csv_content = (
+        "date,asset,side,units,price_eur,fee_eur\n"
+        "2024-01-15,DOGE,buy,100,0.10,0.00\n"
+    )
+    path = _write_tmp_csv(csv_content)
+    try:
+        with pytest.raises(ValueError, match="unknown asset"):
+            csv_to_trades(path)
+    finally:
+        os.unlink(path)
+
+
+def test_csv_to_trades_missing_required_field():
+    """CSV without 'date' column raises ValueError."""
+    csv_content = (
+        "asset,side,units,price_eur\n"
+        "BTC,buy,0.001,40000\n"
+    )
+    path = _write_tmp_csv(csv_content)
+    try:
+        with pytest.raises(ValueError):
+            csv_to_trades(path)
+    finally:
+        os.unlink(path)
+
+
+def test_csv_to_trades_file_not_found():
+    """Non-existent file raises FileNotFoundError."""
+    with pytest.raises(FileNotFoundError):
+        csv_to_trades("/nonexistent/path/trades.csv")
