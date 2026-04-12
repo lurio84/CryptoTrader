@@ -27,6 +27,8 @@ Todas estas senales se probaron y DESTRUYEN o NO MEJORAN el retorno vs hold DCA:
 | DXY_5d <= -2% (buy BTC 7d)   | N_OOS=4 insuficiente, solo 6 eventos en 11 anos (DTWEXBGS) | dxy_btc_correlation_research |
 | DXY_10d <= -1.5% (buy BTC 14d) | p_IS=0.488, delta ~0 a 3/7/14d, edge a 30d dominado por drift | dxy_btc_correlation_research |
 | Stablecoin share spike +2pp vs rolling 30d (sell BTC 7d) | p_IS=0.639 a 7d, delta 7d=+0.17% (signo opuesto), N_OOS=5 < 10 | stablecoin_dominance_research |
+| BTC basis 3m anualizado > +10%/yr (sell BTC 14d)  | Contango alto predice retornos MAYORES, no caidas. N=132, delta14d=-2.5%, p=0.87 | term_structure_research |
+| BTC basis 3m anualizado < 0%/yr (buy BTC 14d)     | Backwardation predice continuacion bajista, no rebote. N=79, delta14d=-4.3%, p=0.998 | term_structure_research |
 
 ---
 
@@ -179,3 +181,58 @@ Dataset: 2018-01-30 -> 2026-04-11, 2.994 dias. Ratio actual 18.19% (rolling30d 1
 - El spike en share de stablecoins parece ser un indicador **coincidente** (el denominador BTC+ETH se contrae cuando BTC cae, inflando mecanicamente el ratio) mas que un indicador **leading**. No anticipa, registra.
 
 **DISCARD.** No implementar alerta. El edge postulado no existe IS y la muestra OOS es insuficiente para sostener una senal derivada.
+
+---
+
+## Research R5: Term structure futuros BTC (basis 3m) (2026-04)
+
+Script: `research/term_structure_research.py`
+Cache: `data/research_cache/btc_term_structure.csv` + `term_structure_results.txt`
+
+Hipotesis:
+- Contango extremo (basis 3m anualizado > +10%/ano) = apalancamiento caliente -> BTC corrige en 7-21 dias.
+- Backwardation (basis < 0%) = capitulacion (vendedores forzados) -> BTC rebota en 7-21 dias.
+
+Fuentes (sin API key):
+- Spot: yfinance BTC-USD daily (local-only, misma fuente que eth_btc_ratio_research).
+- Futuros quarterly: Deribit `/public/get_tradingview_chart_data` con contratos `BTC-{DDMMMYY}` (ultimo viernes de Mar/Jun/Sep/Dec). 26 contratos recolectados (dic-2019 -> mar-2026). Padding post-expiry descartado filtrando `volume>0`.
+- Basis anualizado = (future / spot - 1) * 365/DTE, eligiendo para cada dia el contrato con DTE mas cercano a 90d dentro de [60, 120] dias.
+
+Metodologia: split IS <2024-03 / OOS >=2024-03 (~70/30 sobre 1.399 dias con basis disponible), cooldown 7d, horizontes 7/14/21/30d, Mann-Whitney U (alternative="less" para SHORT, "greater" para LONG), bootstrap 95% CI (N=10.000). Regla PASS: p_IS<0.05 AND delta>0.02 AND OOS_edge>0 AND N_OOS>=10.
+
+Basis stats (2020-06 -> 2026-04): min=-32.7%, max=+69.3%, mean=+7.7%, p95=+24.0%, p05=-4.3%.
+
+### Variante A -- SHORT: basis_ann > +10%/yr (contango alto)
+
+N=132 (IS=79, OOS=53).
+
+| H    | N   | Sig mean | Base mean | Delta edge | p-val (less) | WR<0 | IS edge | OOS edge |
+|------|-----|----------|-----------|------------|--------------|------|---------|----------|
+| 7d   | 131 | +4.2%    | +1.5%     | -2.7%      | 0.9914       | 39%  | -5.8%   | -1.7%    |
+| 14d  | 131 | +5.9%    | +3.4%     | -2.5%      | 0.8725       | 42%  | -8.3%   | -2.2%    |
+| 21d  | 131 | +8.0%    | +5.3%     | -2.7%      | 0.7400       | 44%  | -11.5%  | -2.7%    |
+| 30d  | 130 | +9.8%    | +8.0%     | -1.8%      | 0.6515       | 42%  | -14.0%  | -3.3%    |
+
+**Signo opuesto a la hipotesis.** Cuando el contango supera +10%/yr, el retorno esperado de BTC a 7-30d es SUPERIOR al baseline en todos los horizontes. El contango alto es un proxy de "momentum alcista" (apetito por apalancamiento largo durante tendencias fuertes), no una senal de correccion inminente.
+
+### Variante B -- LONG: basis_ann < 0%/yr (backwardation)
+
+N=79 (IS=62, OOS=17).
+
+| H    | N  | Sig mean | Base mean | Delta | p-val (greater) | WR>0 | IS mean | OOS mean |
+|------|----|----------|-----------|-------|-----------------|------|---------|----------|
+| 7d   | 79 | -1.7%    | +1.9%     | -3.6% | 0.9999          | 37%  | -1.7%   | -1.8%    |
+| 14d  | 78 | -0.5%    | +3.8%     | -4.3% | 0.9983          | 37%  | +0.0%   | -2.4%    |
+| 21d  | 78 | +1.7%    | +5.8%     | -4.1% | 0.9858          | 37%  | +3.0%   | -3.1%    |
+| 30d  | 78 | +5.7%    | +8.4%     | -2.7% | 0.9317          | 42%  | +7.9%   | -2.8%    |
+
+**Signo opuesto a la hipotesis.** La backwardation no precede rebotes: los dias con basis 3m anualizado negativo tienen retornos de BTC a 7-14d PEORES que el baseline. En lenguaje sencillo, cuando los futuros cotizan por debajo del spot (capitulacion/deleverage), el deleverage continua unos dias mas antes de estabilizarse. Funciona como indicador de momentum bajista, no como contrarian.
+
+**Por que ambas variantes fallan:**
+- Term structure de crypto se comporta como un **momentum indicator**, no como un mean-reverter. En tendencias fuertes (alcista o bajista) el basis refleja el stress en las posiciones apalancadas, y esa tendencia tiende a persistir 1-3 semanas antes de estabilizarse.
+- Esto es consistente con los hallazgos previos del repo: MVRV alto, NUPL alto, RSI>85, F&G>80 tampoco son senales de correccion -- son proxies de momentum. Term structure se suma a la lista.
+- La asimetria entre signals SHORT (N=132) y LONG (N=79) refleja que la distribucion del basis esta sesgada al contango (mean +7.7%, p05 solo -4.3%). Backwardation es un evento raro, concentrado en 2022 (crashes Luna/FTX) y 2024-2025 (algunos flush-outs), que no se generaliza.
+- N_OOS OK en ambos casos (52 y 16) pero el signo del edge ya esta en contra desde IS, por lo que ningun ajuste de umbral salvaria la senal.
+
+**DISCARD.** No implementar alerta en ninguna direccion. El basis 3m puede seguir siendo util como **indicador de stress contextual** en el digest semanal (informativo, no accionable) pero no como trigger de compra/venta automatica. No tocar thresholds de produccion (btc_crash, sp500_crash, dca_out) -- ninguna interaccion con term structure justifica cambios.
+
