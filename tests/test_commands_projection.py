@@ -61,7 +61,7 @@ class TestSparplanProjection:
 # C6: fx
 # ---------------------------------------------------------------------------
 
-FRED_CSV_FIXTURE = """DATE,DEXUSEU
+FRED_CSV_FIXTURE = """observation_date,DEXUSEU
 2026-01-01,1.05
 2026-02-01,1.06
 2026-03-01,1.07

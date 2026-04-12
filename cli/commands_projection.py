@@ -102,8 +102,8 @@ def cmd_fx(args: argparse.Namespace) -> None:
         return
 
     try:
-        df = pd.read_csv(io.StringIO(resp.text), parse_dates=["DATE"])
-        df = df.rename(columns={fred_id: "rate"})
+        df = pd.read_csv(io.StringIO(resp.text), parse_dates=["observation_date"])
+        df = df.rename(columns={"observation_date": "DATE", fred_id: "rate"})
         df = df.dropna(subset=["rate"])
         df = df[df["rate"] > 0].sort_values("DATE")
     except Exception as exc:
