@@ -65,6 +65,14 @@ IRPF_BRACKET_LABELS = [
 IRPF_BRACKET_RATES = [0.19, 0.21, 0.23, 0.27, 0.28]
 
 
+# ---------------------------------------------------------------------------
+# EUR/USD historical average for USD-denominated thresholds and projections.
+# Based on the 2018-2026 research period (range 0.96-1.22, avg ~1.10).
+# Use data/etf_prices.py _get_eur_usd() for a live rate when available.
+# ---------------------------------------------------------------------------
+
+EUR_USD_AVG = 1.10
+
 _CYCLE_DAYS = 48 * 30.44  # ~4 years in days
 
 def halving_cycle_info() -> dict:

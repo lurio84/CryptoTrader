@@ -15,6 +15,7 @@ from cli.constants import (
     SPARPLAN_TARGETS,
     DRIFT_THRESHOLD,
     DRIFT_WATCH_THRESHOLD,
+    EUR_USD_AVG,
     detect_asset_class,
 )
 from data.database import init_db, get_session
@@ -313,7 +314,6 @@ _CRYPTO_DCA_USD = {
     "BTC": (80_000, 20_000),
     "ETH": (3_000, 1_000),
 }
-_EUR_USD = 1.10
 
 
 def _print_crypto_block(
@@ -340,7 +340,7 @@ def _print_crypto_block(
             continue
         dca_base, dca_step = _CRYPTO_DCA_USD[asset]
         s = calculate_portfolio_status(
-            asset, trades, price_eur, dca_base / _EUR_USD, dca_step / _EUR_USD
+            asset, trades, price_eur, dca_base / EUR_USD_AVG, dca_step / EUR_USD_AVG
         )
         sign = "+" if s["unrealized_gain_eur"] >= 0 else ""
         print(f"\n  {asset}: {s['units_held']:.6f} u  ({s['buy_count']} compras, {s['sell_count']} ventas)")
@@ -446,13 +446,13 @@ def _print_allocation_block(
     if btc_price_eur and btc_trades:
         dca_base, dca_step = _CRYPTO_DCA_USD["BTC"]
         s_btc = calculate_portfolio_status(
-            "BTC", btc_trades, btc_price_eur, dca_base / _EUR_USD, dca_step / _EUR_USD
+            "BTC", btc_trades, btc_price_eur, dca_base / EUR_USD_AVG, dca_step / EUR_USD_AVG
         )
         all_values["BTC"] = s_btc["current_value_eur"]
     if eth_price_eur and eth_trades:
         dca_base, dca_step = _CRYPTO_DCA_USD["ETH"]
         s_eth = calculate_portfolio_status(
-            "ETH", eth_trades, eth_price_eur, dca_base / _EUR_USD, dca_step / _EUR_USD
+            "ETH", eth_trades, eth_price_eur, dca_base / EUR_USD_AVG, dca_step / EUR_USD_AVG
         )
         all_values["ETH"] = s_eth["current_value_eur"]
     for asset, val in etf_value_map.items():

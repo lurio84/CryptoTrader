@@ -1,6 +1,7 @@
 """FastAPI dashboard for CryptoTrader Advisor."""
 
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -20,7 +21,14 @@ from cli.constants import halving_cycle_info
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="CryptoTrader Advisor")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="CryptoTrader Advisor", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
@@ -101,10 +109,6 @@ def _evaluate_alerts(prices: dict, funding_rate: float | None, mvrv: float | Non
 
     return alerts
 
-
-@app.on_event("startup")
-def startup():
-    init_db()
 
 
 @app.get("/", response_class=HTMLResponse)

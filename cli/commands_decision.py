@@ -114,7 +114,7 @@ def cmd_what_if(args: argparse.Namespace) -> None:
 
     Purely read-only. Uses current holdings but substitutes price for the target asset.
     """
-    from cli.constants import SPARPLAN_TARGETS, DRIFT_THRESHOLD, DRIFT_WATCH_THRESHOLD
+    from cli.constants import SPARPLAN_TARGETS, DRIFT_THRESHOLD, DRIFT_WATCH_THRESHOLD, EUR_USD_AVG
     from data.market_data import fetch_portfolio_prices_eur
     from data.models import UserTrade
     from data.portfolio import calculate_portfolio_status, compute_spanish_tax
@@ -127,7 +127,7 @@ def cmd_what_if(args: argparse.Namespace) -> None:
     init_db()
     asset = args.asset.upper()
     target_price_usd = float(args.price)
-    eur_usd = 1.10
+    eur_usd = EUR_USD_AVG
     target_price_eur = target_price_usd / eur_usd
 
     prices = fetch_portfolio_prices_eur(include_etfs=True)
