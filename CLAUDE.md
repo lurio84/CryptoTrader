@@ -48,7 +48,7 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 - Digest incluye bloque "Asignacion vs targets": % actual de cada activo vs SPARPLAN_TARGETS con drift.
 - Digest incluye bloque "Correlacion 30d": BTC/SP500, ETH/SP500, BTC/ETH (Pearson, retornos diarios).
 - Digest guarda snapshot semanal en `user_portfolio_snapshot` (idempotente por semana ISO).
-- Dashboard: endpoint `/api/alerts?days=30[&alert_type=X&severity=Y]` (excluye heartbeats por defecto), `/api/snapshots`, `/api/drift` (allocation vs targets en vivo), `/api/portfolio_pnl` (P&L por activo unrealized+realized).
+- Dashboard: endpoint `/api/alerts?days=30[&alert_type=X&severity=Y]` (excluye heartbeats por defecto), `/api/snapshots`, `/api/drift` (allocation vs targets en vivo), `/api/portfolio_pnl` (P&L por activo unrealized+realized), `/api/alerts_heatmap?days=30` (conteos por dia+tipo, sin heartbeats), `POST /api/tax_simulate` ({asset,units,price_eur,year} -> delta IRPF JSON), `GET /api/retirement_mc?age=30&retire_age=65&monthly=140&inflation=0&n_simulations=500` (Monte Carlo rapido, percentiles p10-p90, local-only/yfinance).
 - `tax-headroom --notify --threshold N`: envia Discord si margen IRPF < N EUR (LOCAL ONLY, dedup 7d).
 - `drift-check` muestra "Para rebalancear: Compra/Vende X EUR de ASSET" para activos con drift >10pp.
 - `user_trade.side`: valores validos: "buy", "sell", "dividend", "staking". Sin CHECK constraint en DB.
@@ -97,6 +97,11 @@ python main.py health-check                                # Valida DB + APIs ex
 python main.py explain-alert --id 42                       # Detalles de alerta historica (por id o --type)
 python main.py tax-headroom --notify [--threshold 2000]    # Envia Discord si margen < threshold (LOCAL)
 
+# Proyecciones (LOCAL)
+python main.py sparplan-projection [--months 24 --return 0.15]  # Proyeccion determinista Sparplan a N meses
+python main.py fx [--pair EURUSD]                               # EUR/USD spot + 30d + ATH/ATL (FRED, sin API key)
+python main.py compare-periods --asset BTC --p1 2020-01-01:2021-01-01 --p2 2022-01-01:2023-01-01
+
 # Monte Carlo jubilacion
 python main.py retirement-plan [--age 35 --retire-age 60 --target-eur 800000]
 python main.py retirement-plan --inflation 0.025            # Con deflacion a EUR reales (2.5% inf/ano)
@@ -116,11 +121,12 @@ python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 - ETH MVRV + BTC MVRV: CoinMetrics community API
 - S&P500 5d change: Stooq.com (`fetch_sp500_change()` en `data/market_data.py`). Sin API key, CI-safe.
 - Precios ETF (LOCAL): yfinance (SPY, SOXX, O, URA + EURUSD=X). NUNCA en alerts/ ni CI.
+- EUR/USD historico (LOCAL): FRED DEXUSEU (`cmd_fx` en `cli/commands_projection.py`). CSV publico, sin API key.
 
 ## Convenciones
 
 - Conventional commits (hook configurado): feat:, fix:, docs:, etc.
-- Tests: pytest, 173 tests actualmente
+- Tests: pytest, 196 tests actualmente
 - NO usar caracteres unicode especiales en Python (Windows cp1252)
 - SQLAlchemy: convertir a dicts dentro del `with get_session()` antes de usar fuera del bloque.
   Patron de referencia: `_row_to_dict` en `cmd_portfolio` de `main.py`.
@@ -141,9 +147,10 @@ data/portfolio.py         -- Logica FIFO e IRPF (solo crypto)
 data/etf_prices.py        -- Precios ETF en EUR via yfinance (local-only)
 analysis/monte_carlo.py   -- Proyeccion jubilacion Monte Carlo
 dashboard/app.py          -- FastAPI + dashboard web (usa halving_cycle_info de cli/constants)
-cli/constants.py          -- SPARPLAN_TARGETS, LAST_HALVING, DRIFT_THRESHOLD, IRPF_BRACKETS_2024, halving_cycle_info() (fuente de verdad)
+cli/constants.py          -- SPARPLAN_TARGETS, LAST_HALVING, DRIFT_THRESHOLD, IRPF_BRACKETS_2024, EUR_USD_AVG, halving_cycle_info() (fuente de verdad)
 cli/commands_decision.py  -- tax-simulate, what-if, health-check, explain-alert (decision-support local)
-main.py                   -- CLI entry point (20 comandos)
+cli/commands_projection.py -- sparplan-projection, fx (FRED), compare-periods (yfinance lazy, local-only)
+main.py                   -- CLI entry point (23 comandos)
 research/                 -- Scripts standalone de research (excluidos de contexto Claude)
 ```
 
