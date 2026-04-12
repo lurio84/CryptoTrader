@@ -10,7 +10,7 @@ Pattern mirrors test_discord_bot.py: patch as close to usage as possible.
 
 import json
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -171,7 +171,7 @@ def test_api_status_btc_crash_triggers_alert(db_session):
 # /api/alerts
 # ---------------------------------------------------------------------------
 
-def _insert_alert(session, alert_type, severity="orange"):
+def _insert_alert(session, alert_type, severity="orange", timestamp=None):
     a = AlertLog(
         alert_type=alert_type,
         severity=severity,
@@ -180,7 +180,7 @@ def _insert_alert(session, alert_type, severity="orange"):
         eth_price=3_200.0,
         metric_value=0.0,
         notified=True,
-        timestamp=datetime.now(timezone.utc).replace(tzinfo=None),
+        timestamp=timestamp or datetime.now(timezone.utc).replace(tzinfo=None),
     )
     session.add(a)
     session.commit()
@@ -493,3 +493,200 @@ def test_api_retirement_mc_handles_mc_error(client):
     assert resp.status_code == 200
     data = resp.json()
     assert "error" in data
+
+
+# ---------------------------------------------------------------------------
+# D6 heatmap: gap-coverage tests (severity aggregation, days filter, multi-day)
+# ---------------------------------------------------------------------------
+
+def test_api_alerts_heatmap_severity_aggregation_keeps_highest(client_with_session):
+    """When multiple alerts of the same (date, type) coexist, the cell should
+    surface the highest severity (red > orange > yellow > green)."""
+    c, session = client_with_session
+    _insert_alert(session, "btc_crash", "yellow")
+    _insert_alert(session, "btc_crash", "orange")
+    _insert_alert(session, "btc_crash", "red")
+
+    data = c.get("/api/alerts_heatmap").json()
+    cells = [cell for cell in data["cells"] if cell["type"] == "btc_crash"]
+    assert len(cells) == 1
+    assert cells[0]["count"] == 3
+    assert cells[0]["severity"] == "red"
+
+
+def test_api_alerts_heatmap_days_param_excludes_old_alerts(client_with_session):
+    """Alerts older than `days` should be filtered out by the cutoff."""
+    c, session = client_with_session
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    _insert_alert(session, "btc_crash", "red", timestamp=now)
+    _insert_alert(session, "mvrv_critical", "red", timestamp=now - timedelta(days=60))
+
+    # Default days=30 -> only recent alert
+    data_30 = c.get("/api/alerts_heatmap?days=30").json()
+    types_30 = {cell["type"] for cell in data_30["cells"]}
+    assert "btc_crash" in types_30
+    assert "mvrv_critical" not in types_30
+
+    # days=90 -> both alerts
+    data_90 = c.get("/api/alerts_heatmap?days=90").json()
+    types_90 = {cell["type"] for cell in data_90["cells"]}
+    assert "btc_crash" in types_90
+    assert "mvrv_critical" in types_90
+
+
+def test_api_alerts_heatmap_multi_day_distinct_cells(client_with_session):
+    """Same alert type on different days should produce distinct cells."""
+    c, session = client_with_session
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    _insert_alert(session, "btc_crash", "red", timestamp=now)
+    _insert_alert(session, "btc_crash", "red", timestamp=now - timedelta(days=3))
+
+    data = c.get("/api/alerts_heatmap").json()
+    btc_cells = [c for c in data["cells"] if c["type"] == "btc_crash"]
+    assert len(btc_cells) == 2
+    distinct_dates = {c["date"] for c in btc_cells}
+    assert len(distinct_dates) == 2
+    assert len(data["days"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# D7 tax_simulate: gap-coverage tests (real preexisting trades affect baseline)
+# ---------------------------------------------------------------------------
+
+def _insert_dated_trade(session, asset, units, price_eur, side, trade_date,
+                       asset_class="crypto"):
+    from data.models import UserTrade
+    session.add(UserTrade(
+        date=trade_date,
+        asset=asset, asset_class=asset_class, side=side,
+        units=units, price_eur=price_eur, fee_eur=0.0, source="sparplan",
+    ))
+    session.commit()
+
+
+def test_api_tax_simulate_with_existing_buy_produces_gain(client_with_session):
+    """A simulated sell against a preexisting buy at a lower cost basis
+    should produce delta_gain > 0 and delta_irpf > 0."""
+    c, session = client_with_session
+    now = datetime.now()
+    _insert_dated_trade(
+        session, "BTC", units=0.1, price_eur=30_000.0,
+        side="buy", trade_date=now - timedelta(days=180),
+    )
+
+    resp = c.post("/api/tax_simulate", json={
+        "asset": "BTC", "units": 0.05, "price_eur": 80_000.0,
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "error" not in data
+    assert data["proceeds_eur"] == pytest.approx(0.05 * 80_000.0)
+    assert data["gain_before_eur"] == pytest.approx(0.0)
+    # 0.05 BTC * (80000 - 30000) = 2500 EUR gain
+    assert data["gain_after_eur"] == pytest.approx(2500.0, rel=0.01)
+    assert data["delta_gain_eur"] == pytest.approx(2500.0, rel=0.01)
+    assert data["delta_irpf_eur"] > 0
+    # Net cash should be proceeds minus tax
+    assert 0 < data["net_cash_eur"] < data["proceeds_eur"]
+    assert data["effective_tax_rate_pct"] > 0
+
+
+def test_api_tax_simulate_baseline_with_realized_gain(client_with_session):
+    """If the user already has a realized sell this year, the baseline gain
+    must be > 0 and delta_irpf must reflect only the marginal impact."""
+    c, session = client_with_session
+    now = datetime.now()
+    _insert_dated_trade(
+        session, "BTC", units=0.2, price_eur=20_000.0,
+        side="buy", trade_date=now - timedelta(days=400),
+    )
+    _insert_dated_trade(
+        session, "BTC", units=0.05, price_eur=70_000.0,
+        side="sell", trade_date=now - timedelta(days=30),
+    )
+
+    resp = c.post("/api/tax_simulate", json={
+        "asset": "BTC", "units": 0.05, "price_eur": 90_000.0,
+    })
+    data = resp.json()
+    assert "error" not in data
+    # Already realized: 0.05 * (70000 - 20000) = 2500 EUR
+    assert data["gain_before_eur"] == pytest.approx(2500.0, rel=0.01)
+    # After sim: + 0.05 * (90000 - 20000) = +3500 EUR -> 6000 total
+    assert data["gain_after_eur"] == pytest.approx(6000.0, rel=0.01)
+    assert data["delta_gain_eur"] == pytest.approx(3500.0, rel=0.01)
+    assert data["delta_irpf_eur"] > 0
+
+
+def test_api_tax_simulate_zero_price_rejected(client):
+    resp = client.post("/api/tax_simulate", json={
+        "asset": "BTC", "units": 0.1, "price_eur": 0.0,
+    })
+    data = resp.json()
+    assert "error" in data
+
+
+# ---------------------------------------------------------------------------
+# D8 retirement_mc: gap-coverage (inflation deflate, n_simulations clamp)
+# ---------------------------------------------------------------------------
+
+def test_api_retirement_mc_inflation_deflates_values(client):
+    """With inflation > 0, returned percentile values must be strictly less
+    than the raw simulation output (real EUR < nominal EUR)."""
+    raw = _make_mock_mc_result()
+    raw_p50 = list(raw.p50)  # snapshot before patching consumes it
+
+    with patch("analysis.monte_carlo.run_monte_carlo", return_value=raw):
+        data = client.get(
+            "/api/retirement_mc?age=30&retire_age=65&monthly=140&inflation=0.05"
+        ).json()
+
+    assert data["inflation"] == 0.05
+    assert len(data["p50"]) == len(raw_p50)
+    # Every deflated value must be smaller than the nominal one
+    for nominal, deflated in zip(raw_p50, data["p50"]):
+        assert deflated < nominal
+
+
+def test_api_retirement_mc_no_inflation_passes_through(client):
+    """Without inflation the values must equal the raw simulation output."""
+    raw = _make_mock_mc_result()
+    raw_p50 = list(raw.p50)
+
+    with patch("analysis.monte_carlo.run_monte_carlo", return_value=raw):
+        data = client.get(
+            "/api/retirement_mc?age=30&retire_age=65&monthly=140"
+        ).json()
+
+    assert data["inflation"] == 0.0
+    assert data["p50"] == raw_p50
+
+
+def test_api_retirement_mc_clamps_n_simulations_low(client):
+    """n_simulations below 50 must be clamped to 50."""
+    with patch(
+        "analysis.monte_carlo.run_monte_carlo", return_value=_make_mock_mc_result()
+    ) as mock_mc:
+        client.get("/api/retirement_mc?n_simulations=10")
+    _, kwargs = mock_mc.call_args
+    assert kwargs["n_simulations"] == 50
+
+
+def test_api_retirement_mc_clamps_n_simulations_high(client):
+    """n_simulations above 2000 must be clamped to 2000."""
+    with patch(
+        "analysis.monte_carlo.run_monte_carlo", return_value=_make_mock_mc_result()
+    ) as mock_mc:
+        client.get("/api/retirement_mc?n_simulations=99999")
+    _, kwargs = mock_mc.call_args
+    assert kwargs["n_simulations"] == 2000
+
+
+def test_api_retirement_mc_n_years_floor(client):
+    """When age >= retire_age, n_years must be floored to 1 (not 0/negative)."""
+    with patch(
+        "analysis.monte_carlo.run_monte_carlo", return_value=_make_mock_mc_result()
+    ) as mock_mc:
+        client.get("/api/retirement_mc?age=70&retire_age=65")
+    _, kwargs = mock_mc.call_args
+    assert kwargs["n_years"] == 1

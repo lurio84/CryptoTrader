@@ -127,7 +127,7 @@ python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 ## Convenciones
 
 - Conventional commits (hook configurado): feat:, fix:, docs:, etc.
-- Tests: pytest, 196 tests actualmente
+- Tests: pytest, 207 tests actualmente
 - NO usar caracteres unicode especiales en Python (Windows cp1252)
 - SQLAlchemy: convertir a dicts dentro del `with get_session()` antes de usar fuera del bloque.
   Patron de referencia: `_row_to_dict` en `cmd_portfolio` de `main.py`.
