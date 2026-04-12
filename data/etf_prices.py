@@ -15,13 +15,16 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Ticker mapping: canonical asset name -> yfinance symbol
+# Tickers correspond to the exact instruments sold by Trade Republic.
+# EUR tickers (XETRA): returned directly, no conversion needed.
+# USD tickers (NYSE): converted via EURUSD=X.
 # ---------------------------------------------------------------------------
 
 ETF_TICKERS: dict[str, str] = {
-    "SP500":          "SPY",   # iShares S&P 500 (US proxy; TR uses UCITS equiv)
-    "SEMICONDUCTORS": "SOXX",  # iShares Semiconductor ETF
-    "REALTY_INCOME":  "O",     # Realty Income Corp (NYSE)
-    "URANIUM":        "URA",   # Global X Uranium ETF
+    "SP500":          "AUM5.DE",  # Amundi S&P 500 Swap UCITS ETF (EUR, XETRA) LU1681049018
+    "SEMICONDUCTORS": "SEC0.DE",  # iShares MSCI Global Semiconductors UCITS ETF (EUR, XETRA) IE000I8KRLL9
+    "REALTY_INCOME":  "O",        # Realty Income Corp (USD, NYSE) US7561091049
+    "URANIUM":        "URNU.DE",  # Global X Uranium UCITS ETF (EUR, XETRA) IE000NDWFGA5
 }
 
 
@@ -39,27 +42,34 @@ def _get_eur_usd() -> float | None:
         return None
 
 
-def fetch_etf_price_eur(asset_name: str) -> float | None:
-    """Return current price in EUR for a given ETF asset name, or None on failure.
+def _ticker_price_eur(ticker_sym: str, yf, eurusd: float | None) -> float | None:
+    """Return EUR price for a single yfinance ticker.
 
-    Args:
-        asset_name: key from ETF_TICKERS (e.g. "SP500", "URANIUM").
-                    Case-insensitive.
+    EUR-denominated tickers (e.g. XETRA .DE) are returned directly.
+    USD-denominated tickers (e.g. NYSE) are converted via eurusd rate.
     """
+    ticker = yf.Ticker(ticker_sym)
+    hist = ticker.history(period="2d")
+    if hist.empty:
+        return None
+    price = float(hist["Close"].iloc[-1])
+    currency = ticker.fast_info.get("currency", "USD")
+    if currency == "EUR":
+        return price
+    if eurusd and eurusd > 0:
+        return price / eurusd
+    return None
+
+
+def fetch_etf_price_eur(asset_name: str) -> float | None:
+    """Return current price in EUR for a given ETF asset name, or None on failure."""
     try:
         import yfinance as yf
         ticker_sym = ETF_TICKERS.get(asset_name.upper())
         if ticker_sym is None:
             return None
         eurusd = _get_eur_usd()
-        if eurusd is None or eurusd <= 0:
-            return None
-        ticker = yf.Ticker(ticker_sym)
-        hist = ticker.history(period="2d")
-        if hist.empty:
-            return None
-        price_usd = float(hist["Close"].iloc[-1])
-        return price_usd / eurusd
+        return _ticker_price_eur(ticker_sym, yf, eurusd)
     except Exception as e:
         logger.warning("Failed to fetch ETF price for %s: %s", asset_name, e)
         return None
@@ -68,8 +78,8 @@ def fetch_etf_price_eur(asset_name: str) -> float | None:
 def fetch_all_etf_prices_eur() -> dict[str, float | None]:
     """Return {asset_name: price_eur_or_None} for all known ETF assets.
 
-    Fetches EUR/USD rate once and reuses it for all tickers to minimize
-    API calls.
+    Fetches EUR/USD rate once and reuses it for all tickers to minimise
+    API calls. EUR-native tickers skip the conversion.
     """
     try:
         import yfinance as yf
@@ -77,18 +87,11 @@ def fetch_all_etf_prices_eur() -> dict[str, float | None]:
         return {name: None for name in ETF_TICKERS}
 
     eurusd = _get_eur_usd()
-    if eurusd is None or eurusd <= 0:
-        return {name: None for name in ETF_TICKERS}
 
     result: dict[str, float | None] = {}
     for asset_name, ticker_sym in ETF_TICKERS.items():
         try:
-            ticker = yf.Ticker(ticker_sym)
-            hist = ticker.history(period="2d")
-            if hist.empty:
-                result[asset_name] = None
-            else:
-                result[asset_name] = float(hist["Close"].iloc[-1]) / eurusd
+            result[asset_name] = _ticker_price_eur(ticker_sym, yf, eurusd)
         except Exception as e:
             logger.warning("Failed to fetch price for %s: %s", asset_name, e)
             result[asset_name] = None
