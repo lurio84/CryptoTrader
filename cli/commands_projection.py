@@ -162,7 +162,6 @@ def cmd_compare_periods(args: argparse.Namespace) -> None:
     Uses yfinance (LOCAL ONLY -- lazy import, never in alerts/ or CI).
     --p1 and --p2 must be formatted as START:END (e.g. 2020-01-01:2021-01-01).
     """
-    import yfinance as yf
     import pandas as pd
 
     asset = args.asset.upper()
@@ -192,6 +191,8 @@ def cmd_compare_periods(args: argparse.Namespace) -> None:
     except ValueError as exc:
         print(f"Error: {exc}")
         return
+
+    import yfinance as yf
 
     ticker = ticker_map[asset]
 

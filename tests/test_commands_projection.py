@@ -1,9 +1,13 @@
 """Tests for cli/commands_projection.py (C5 sparplan-projection, C6 fx, C7 compare-periods)."""
 
 import argparse
+import importlib.util
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+_yfinance_available = importlib.util.find_spec("yfinance") is not None
+skipif_no_yfinance = pytest.mark.skipif(not _yfinance_available, reason="yfinance not installed")
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +150,7 @@ class TestComparePeriods:
 
         return patch("yfinance.download", side_effect=_download)
 
+    @skipif_no_yfinance
     def test_basic_comparison_output(self, capsys):
         from cli.commands_projection import cmd_compare_periods
         p1 = self._make_price_series("BTC")
@@ -171,6 +176,7 @@ class TestComparePeriods:
         out = capsys.readouterr().out
         assert "Error" in out
 
+    @skipif_no_yfinance
     def test_delta_shown_when_both_periods_valid(self, capsys):
         from cli.commands_projection import cmd_compare_periods
         p = self._make_price_series("BTC")
