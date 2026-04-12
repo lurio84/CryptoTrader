@@ -26,6 +26,7 @@ Todas estas senales se probaron y DESTRUYEN o NO MEJORAN el retorno vs hold DCA:
 | ETH/BTC percentil 10 | p>0.70 en todos los horizontes, OOS negativo | eth_btc_ratio_research |
 | DXY_5d <= -2% (buy BTC 7d)   | N_OOS=4 insuficiente, solo 6 eventos en 11 anos (DTWEXBGS) | dxy_btc_correlation_research |
 | DXY_10d <= -1.5% (buy BTC 14d) | p_IS=0.488, delta ~0 a 3/7/14d, edge a 30d dominado por drift | dxy_btc_correlation_research |
+| Stablecoin share spike +2pp vs rolling 30d (sell BTC 7d) | p_IS=0.639 a 7d, delta 7d=+0.17% (signo opuesto), N_OOS=5 < 10 | stablecoin_dominance_research |
 
 ---
 
@@ -146,3 +147,35 @@ Observaciones:
 - FRED funciono en primera llamada (no hizo falta fallback a Stooq dx.f).
 
 **DISCARD.** No implementar alerta. La relacion macro USD/BTC es informativa pero no aporta edge estadistico robusto al sistema existente (BTC crash 24h, S&P500 crash, DCA-out).
+
+---
+
+## Research 12: Stablecoin mcap share spike como senal bajista de BTC (2026-04)
+
+Script: `research/stablecoin_dominance_research.py`
+Cache: `data/research_cache/stablecoin_dominance_results.txt` + `stablecoin_dominance.csv`
+
+Hipotesis: cuando el ratio (stablecoin mcap) / (crypto mcap) sube bruscamente >2pp respecto a su media rolling 30d, retail esta rotando a cash defensivo y BTC cae en los 3-14d siguientes.
+
+Fuentes (sin API key):
+- Stablecoins: DefiLlama `/stablecoincharts/all` (publico). 3.057 filas historicas.
+- Denominador: BTC + ETH mcap via CoinMetrics community `CapMrktCurUSD`. CoinGecko `/global/market_cap_chart` (el denominador "ideal") es PRO-only desde 2024 -- HTTP 401 en free tier. BTC+ETH es ~60-75% del crypto mcap total durante todo el periodo y captura la misma rotacion defensiva.
+
+Metodologia: split 70/30 IS/OOS, rolling window 30d, cooldown 7d entre senales, horizontes 3/7/14/30d, Mann-Whitney U alternative='less', bootstrap 95% CI (N=10.000). Umbral PASS: p_IS<0.05 AND delta_OOS<0 AND N_OOS>=10 en horizonte primario 7d. Parametrizacion fijada al inicio (+2pp) sin ajuste posterior.
+
+Dataset: 2018-01-30 -> 2026-04-11, 2.994 dias. Ratio actual 18.19% (rolling30d 19.01%). 30 signals post-cooldown.
+
+| H    | N  | N_IS | N_OOS | delta (sig-base) | p_IS  | WR_down | IS_delta | OOS_delta | Veredicto |
+|------|----|------|-------|------------------|-------|---------|----------|-----------|-----------|
+| 3d   | 30 | 25   | 5     | -1.11%           | 0.389 | 50.0%   | -1.12%   | -1.05%    | DISCARD   |
+| 7d   | 30 | 25   | 5     | +0.17%           | 0.639 | 40.0%   | +0.42%   | -1.20%    | DISCARD   |
+| 14d  | 30 | 25   | 5     | +1.12%           | 0.687 | 46.7%   | +1.77%   | -2.51%    | DISCARD   |
+| 30d  | 30 | 25   | 5     | -1.68%           | 0.347 | 50.0%   | -1.71%   | -2.22%    | DISCARD   |
+
+**Por que falla:**
+- **p_IS nunca significativo** (minimo 0.347 a 30d). El signo de IS_delta incluso se invierte: positivo (+0.42% a 7d, +1.77% a 14d) cuando la hipotesis predice negativo.
+- **N_OOS = 5** en todos los horizontes. El periodo 2023-10 -> 2026-04 solo produjo 5 dias con spike >2pp: la estabilidad reciente del mercado de stablecoins (maduracion USDC/USDT) reduce la varianza del ratio.
+- El OOS_delta es consistentemente negativo (-1.20% a 7d, -2.51% a 14d, -2.22% a 30d) pero sin significancia IS no es discriminable de ruido, y con N_OOS=5 el bootstrap CI95 de 7d abarca [-2.25%, +4.36%] (cruza cero).
+- El spike en share de stablecoins parece ser un indicador **coincidente** (el denominador BTC+ETH se contrae cuando BTC cae, inflando mecanicamente el ratio) mas que un indicador **leading**. No anticipa, registra.
+
+**DISCARD.** No implementar alerta. El edge postulado no existe IS y la muestra OOS es insuficiente para sostener una senal derivada.
