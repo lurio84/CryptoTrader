@@ -11,6 +11,7 @@ Pattern: patch as close to usage as possible, i.e. "alerts.discord_bot.X".
 """
 
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from data.models import AlertLog
@@ -402,3 +403,86 @@ def test_weekly_digest_handles_none_prices(db_session):
         result = send_weekly_digest()
 
     assert result is True
+
+
+# ---------------------------------------------------------------------------
+# check_and_alert -- heartbeat and dead canary
+# ---------------------------------------------------------------------------
+
+def _add_heartbeat(db_session, hours_ago: float):
+    """Helper: insert a heartbeat entry with the given age."""
+    ts = datetime.utcnow() - timedelta(hours=hours_ago)
+    entry = AlertLog(
+        timestamp=ts, alert_type="heartbeat", severity="green",
+        message="heartbeat", btc_price=50000.0, eth_price=2500.0,
+        metric_value=0.0, notified=1,
+    )
+    db_session.add(entry)
+    db_session.commit()
+
+
+def _run_normal_check(db_session):
+    with (
+        patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
+        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
+        patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
+        patch("alerts.discord_bot.send_discord_message", return_value=True),
+        patch("alerts.discord_bot.init_db"),
+        patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
+    ):
+        from alerts.discord_bot import check_and_alert
+        return check_and_alert()
+
+
+def test_heartbeat_logged_after_check(db_session):
+    """check_and_alert() logs a heartbeat entry after each successful run."""
+    _run_normal_check(db_session)
+
+    row = db_session.query(AlertLog).filter_by(alert_type="heartbeat").first()
+    assert row is not None
+    assert row.severity == "green"
+
+
+def test_dead_canary_triggers_when_gap_large(db_session):
+    """Dead canary alert fires when last heartbeat is > 10h ago."""
+    _add_heartbeat(db_session, hours_ago=12)
+
+    result = _run_normal_check(db_session)
+
+    assert any(a["type"] == "dead_canary" and a["severity"] == "red" for a in result)
+    row = db_session.query(AlertLog).filter_by(alert_type="dead_canary").first()
+    assert row is not None
+
+
+def test_dead_canary_no_trigger_recent_heartbeat(db_session):
+    """Dead canary does not fire when last heartbeat is < 10h ago."""
+    _add_heartbeat(db_session, hours_ago=3)
+
+    result = _run_normal_check(db_session)
+
+    assert not any(a["type"] == "dead_canary" for a in result)
+
+
+def test_dead_canary_no_trigger_no_heartbeats(db_session):
+    """Dead canary does not fire on first run (no heartbeat records in DB)."""
+    result = _run_normal_check(db_session)
+
+    assert not any(a["type"] == "dead_canary" for a in result)
+
+
+def test_dead_canary_dedup(db_session):
+    """Dead canary alert not sent again if already alerted within 6h cooldown."""
+    _add_heartbeat(db_session, hours_ago=12)
+    # Simulate a dead_canary alert already sent 1h ago
+    db_session.add(AlertLog(
+        timestamp=datetime.utcnow() - timedelta(hours=1),
+        alert_type="dead_canary", severity="red",
+        message="dead_canary", btc_price=None, eth_price=None,
+        metric_value=12.0, notified=1,
+    ))
+    db_session.commit()
+
+    result = _run_normal_check(db_session)
+
+    assert not any(a["type"] == "dead_canary" for a in result)

@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 import requests
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from config.settings import settings
 from data.database import init_db, get_session
@@ -49,6 +49,10 @@ COOLDOWN_FUNDING    = 24
 COOLDOWN_MVRV       = 168   # 7 days
 COOLDOWN_SP500      = 168   # 7 days
 COOLDOWN_DCA_OUT    = 720   # 30 days
+
+# Dead canary: alert if no successful check in this many hours
+CANARY_THRESHOLD_HOURS = 10
+COOLDOWN_DEAD_CANARY   = 6
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +221,22 @@ def check_and_alert() -> list[dict]:
     triggered = []
 
     with get_session() as session:
+        # Dead canary: detect if previous checks stopped running silently
+        last_hb = session.query(func.max(AlertLog.timestamp)).filter(
+            AlertLog.alert_type == "heartbeat"
+        ).scalar()
+        if last_hb is not None:
+            gap_h = (datetime.utcnow() - last_hb).total_seconds() / 3600
+            if gap_h > CANARY_THRESHOLD_HOURS:
+                if not _already_alerted(session, "dead_canary", COOLDOWN_DEAD_CANARY):
+                    sent = send_discord_message(_format_embed(
+                        "Dead Canary -- Sistema sin checks",
+                        "red",
+                        {"recommendation": "Ultimo check hace {:.1f}h (umbral: {}h). Verificar GitHub Actions y APIs.".format(gap_h, CANARY_THRESHOLD_HOURS)},
+                    ))
+                    _log_alert(session, "dead_canary", "red", btc_price, eth_price, gap_h, sent)
+                    triggered.append({"type": "dead_canary", "severity": "red", "sent": sent})
+
         # Signal 1: BTC crash > 15% in 24h
         if btc_change is not None and btc_change <= BTC_CRASH_THRESHOLD:
             alert_type = "btc_crash"
@@ -311,6 +331,9 @@ def check_and_alert() -> list[dict]:
             ),
             triggered=triggered,
         )
+
+        # Heartbeat: record successful run for dead canary detection
+        _log_alert(session, "heartbeat", "green", btc_price, eth_price, float(len(triggered)), True)
 
     if not triggered:
         logger.info("No alerts triggered. All metrics within normal ranges.")
