@@ -102,6 +102,10 @@ def main() -> None:
     port_sub.add_parser("history", help="List all registered trades")
     port_sub.add_parser("export", help="Export all trades as CSV (for backup)")
 
+    p_import = port_sub.add_parser("import", help="Import trades from CSV file (same format as 'portfolio export')")
+    p_import.add_argument("file", help="Path to CSV file")
+    p_import.add_argument("--dry-run", action="store_true", help="Parse and validate without inserting into DB")
+
     p_tax = port_sub.add_parser("tax-report", help="Informe IRPF anual de ventas realizadas")
     p_tax.add_argument("--year", type=int, default=None, help="Anno fiscal (default: anno en curso)")
     p_tax.add_argument("--csv", action="store_true", help="Output en formato CSV")

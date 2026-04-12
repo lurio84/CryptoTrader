@@ -38,6 +38,31 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
         print(f"Registered: {side.upper()} {args.units:.6f} {asset_upper} @ {args.price_eur:.2f} EUR/unit = {total_eur:.2f} EUR total (fee: {args.fee_eur:.2f} EUR, source: {args.source})")
         return
 
+    if sub == "import":
+        from data.portfolio import csv_to_trades
+        try:
+            rows = csv_to_trades(args.file)
+        except (ValueError, FileNotFoundError, OSError) as e:
+            print(f"Error: {e}")
+            return
+        if args.dry_run:
+            print(f"Dry-run: {len(rows)} trades parsed OK")
+            for r in rows:
+                print(f"  {r['date'].date()} {r['asset']:<16} {r['side']:<4} {r['units']:.6f} @ {r['price_eur']:.2f} EUR  [{r['source']}]")
+            return
+        inserted = 0
+        with get_session() as session:
+            for r in rows:
+                ac = r["asset_class"] or detect_asset_class(r["asset"])
+                session.add(UserTrade(
+                    date=r["date"], asset=r["asset"], asset_class=ac,
+                    side=r["side"], units=r["units"], price_eur=r["price_eur"],
+                    fee_eur=r["fee_eur"], source=r["source"], notes=r["notes"],
+                ))
+                inserted += 1
+        print(f"Imported {inserted} trades.")
+        return
+
     btc_price_eur = None
     eth_price_eur = None
     etf_prices: dict = {}
@@ -173,6 +198,10 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
         if s["realized_gain_eur"] != 0:
             print(f"    Ganancia real.:   {s['realized_gain_eur']:>10,.2f} EUR (ventas anteriores)")
         print(f"    IRPF si vendieras:{s['irpf_estimate_eur']:>9,.0f} EUR (~{s['irpf_rate_pct']:.0f}% efectivo)")
+        from data.portfolio import build_xirr_cash_flows, calculate_xirr
+        xirr_val = calculate_xirr(build_xirr_cash_flows(trades, price_eur))
+        if xirr_val is not None:
+            print(f"    IRR anualizada:   {xirr_val * 100:>+9.1f}%  (TIR considerando fechas y cash flows)")
         if s["next_dca_level_eur"]:
             pct_to_level = (s["next_dca_level_eur"] / price_eur - 1) * 100
             print(f"    Proximo DCA-out:  {asset} a {s['next_dca_level_eur']:,.0f} EUR ({pct_to_level:+.1f}%) -> vende {s['next_dca_units']:.6f} {asset} ({s['next_dca_eur']:,.0f} EUR)")

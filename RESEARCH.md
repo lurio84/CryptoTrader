@@ -214,10 +214,9 @@ Datos: CoinMetrics BTC CapMVRVCur + PriceUSD, 2010-2026. Split IS: 2011-2022 / O
 
 ## Investigacion pendiente (baja prioridad)
 
-- **Alerta S&P 500 crash**: validada (Research 6, -7% threshold). Evaluar implementacion (N=13, confianza baja).
+- **Alerta S&P 500 crash**: IMPLEMENTADA a -7% (Research 6, N=13, p=0.003 a 4w). Threshold cambiado de -5% a -7% por mejor edge estadistico. Cooldown 7d.
 - **Ajuste DCA-out**: si BTC supera ATH $124k con claridad, reconsiderar nivel de inicio ($80k).
 - **CDD real**: requiere datos de pago (CoinMetrics free no lo tiene).
-- **Portfolio import CSV**: anadir comando `portfolio import mi_trades.csv`.
 - **Tickers ETF UCITS**: SPY/SOXX/O/URA son proxies USD. TR usa ETFs europeos (ej. SXR8.DE).
 - **Verificar ETH stakeado TR**: confirmar si venta es inmediata o requiere unstaking.
 - **Monte Carlo con inflacion**: anadir flag `--inflation 0.025`.

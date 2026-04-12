@@ -260,8 +260,112 @@ def calculate_tax_report(all_trades: list[dict], year: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# IRR / XIRR
+# ---------------------------------------------------------------------------
+
+def build_xirr_cash_flows(
+    trades: list[dict], current_price_eur: float
+) -> list[tuple[datetime, float]]:
+    """Build irregular cash flow list for XIRR from trade dicts + current valuation.
+
+    Buys are negative cash flows (money out); sells are positive (money in).
+    The current market value of remaining units is the final positive flow dated today.
+    """
+    flows: list[tuple[datetime, float]] = []
+    units_remaining = 0.0
+    for t in sorted(trades, key=lambda x: x["date"]):
+        if t["side"] == "buy":
+            cost = t["units"] * t["price_eur"] + t["fee_eur"]
+            flows.append((t["date"], -cost))
+            units_remaining += t["units"]
+        else:
+            proceeds = t["units"] * t["price_eur"] - t["fee_eur"]
+            flows.append((t["date"], proceeds))
+            units_remaining -= t["units"]
+    if units_remaining > 0:
+        flows.append((datetime.now(), units_remaining * current_price_eur))
+    return flows
+
+
+def calculate_xirr(cash_flows: list[tuple[datetime, float]]) -> float | None:
+    """Annualized internal rate of return for irregular cash flows (bisection).
+
+    Returns the annualized rate (e.g. 0.42 = 42%) or None if no solution exists
+    or if there are insufficient data points.
+    Requires at least one negative and one positive cash flow to converge.
+    """
+    if len(cash_flows) < 2:
+        return None
+    dates, amounts = zip(*cash_flows)
+    t0 = dates[0]
+    years = [(d - t0).days / 365.0 for d in dates]
+
+    def npv(r: float) -> float:
+        return sum(cf / (1.0 + r) ** t for cf, t in zip(amounts, years))
+
+    try:
+        lo, hi = -0.99, 10.0
+        if npv(lo) * npv(hi) > 0:
+            return None
+        for _ in range(200):
+            mid = (lo + hi) / 2.0
+            if npv(mid) > 0:
+                lo = mid
+            else:
+                hi = mid
+        return (lo + hi) / 2.0
+    except (ZeroDivisionError, OverflowError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------------
 # CSV export
 # ---------------------------------------------------------------------------
+
+def csv_to_trades(filepath: str) -> list[dict]:
+    """Parse a portfolio CSV (same format as 'portfolio export') into trade dicts.
+
+    Returns list of dicts ready for UserTrade insertion.
+    Raises ValueError with row number on validation failure.
+    Raises FileNotFoundError if the file does not exist.
+    """
+    _VALID_ASSETS  = {"BTC", "ETH", "SP500", "SEMICONDUCTORS", "REALTY_INCOME", "URANIUM"}
+    _VALID_SIDES   = {"buy", "sell"}
+    _VALID_SOURCES = {"sparplan", "crash_buy", "mvrv_buy", "dca_out", "rebalance", "manual"}
+
+    trades = []
+    with open(filepath, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for i, row in enumerate(reader, start=2):  # row 1 = header
+            try:
+                trade = {
+                    "date":       datetime.strptime(row["date"].strip(), "%Y-%m-%d"),
+                    "asset":      row["asset"].strip().upper(),
+                    "asset_class": (row.get("asset_class") or "").strip() or None,
+                    "side":       row["side"].strip().lower(),
+                    "units":      float(row["units"]),
+                    "price_eur":  float(row["price_eur"]),
+                    "fee_eur":    float(row.get("fee_eur") or 0),
+                    "source":     (row.get("source") or "manual").strip() or "manual",
+                    "notes":      (row.get("notes") or "").strip() or None,
+                }
+            except (KeyError, ValueError) as e:
+                raise ValueError(f"Row {i}: {e}") from e
+
+            if trade["asset"] not in _VALID_ASSETS:
+                raise ValueError(f"Row {i}: unknown asset '{trade['asset']}'")
+            if trade["side"] not in _VALID_SIDES:
+                raise ValueError(f"Row {i}: invalid side '{trade['side']}'")
+            if trade["source"] not in _VALID_SOURCES:
+                trade["source"] = "manual"
+            if trade["units"] <= 0 or trade["price_eur"] <= 0:
+                raise ValueError(f"Row {i}: units and price_eur must be positive")
+            if trade["asset_class"] not in ("crypto", "etf", None):
+                trade["asset_class"] = None
+
+            trades.append(trade)
+    return trades
+
 
 def trades_to_csv(trades: list[dict]) -> str:
     """Serialize trade dicts to CSV string for backup."""
