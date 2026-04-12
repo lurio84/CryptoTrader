@@ -4,6 +4,7 @@ from sqlalchemy import (
     Float,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -115,6 +116,24 @@ class AlertLog(Base):
 
     def __repr__(self) -> str:
         return f"<AlertLog {self.alert_type} {self.severity} {self.timestamp}>"
+
+
+class UserPortfolioSnapshot(Base):
+    """Weekly snapshot of personal portfolio value for historical tracking."""
+
+    __tablename__ = "user_portfolio_snapshot"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    snapshot_date = Column(String, nullable=False)   # ISO week string "YYYY-Www"
+    data_json = Column(Text, nullable=False)          # JSON: btc_value, eth_value, etf_value, total, pnls, irpf
+    created_at = Column(DateTime, nullable=False, default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("snapshot_date", name="uq_user_portfolio_snapshot_date"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<UserPortfolioSnapshot {self.snapshot_date}>"
 
 
 class UserTrade(Base):

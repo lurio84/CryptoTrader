@@ -245,6 +245,15 @@ def cmd_drift_check(args: argparse.Namespace) -> None:
 
     print("=" * 57)
 
+    if alerts_to_send:
+        print("\n  Para rebalancear:")
+        for asset, drift, val in alerts_to_send:
+            target_value = total * SPARPLAN_TARGETS[asset] / 100
+            delta_eur = target_value - val
+            action = "Compra" if delta_eur > 0 else "Vende"
+            print("    {} {:.0f} EUR de {}".format(action, abs(delta_eur), asset))
+        print()
+
     if not args.notify:
         if alerts_to_send:
             print("  [!] {} activo(s) con drift >10pp. Usa --notify para enviar a Discord.".format(

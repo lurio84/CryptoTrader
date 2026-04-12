@@ -38,6 +38,43 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
         print(f"Registered: {side.upper()} {args.units:.6f} {asset_upper} @ {args.price_eur:.2f} EUR/unit = {total_eur:.2f} EUR total (fee: {args.fee_eur:.2f} EUR, source: {args.source})")
         return
 
+    if sub == "add-dividend":
+        trade_date = _dt.strptime(args.date, "%Y-%m-%d") if args.date else _dt.now()
+        asset_upper = args.asset.upper()
+        trade = UserTrade(
+            date=trade_date,
+            asset=asset_upper,
+            asset_class=detect_asset_class(asset_upper),
+            side="dividend",
+            units=0.0,
+            price_eur=args.amount_eur,
+            fee_eur=0.0,
+            source="dividend",
+            notes=args.notes,
+        )
+        with get_session() as session:
+            session.add(trade)
+        print(f"Registered: DIVIDEND {asset_upper} {args.amount_eur:.2f} EUR on {trade_date.strftime('%Y-%m-%d')}")
+        return
+
+    if sub == "add-staking":
+        trade_date = _dt.strptime(args.date, "%Y-%m-%d") if args.date else _dt.now()
+        trade = UserTrade(
+            date=trade_date,
+            asset="ETH",
+            asset_class="crypto",
+            side="staking",
+            units=args.units,
+            price_eur=args.price_eur,
+            fee_eur=0.0,
+            source="staking",
+            notes=args.notes,
+        )
+        with get_session() as session:
+            session.add(trade)
+        total_eur = args.units * args.price_eur
+        print(f"Registered: STAKING ETH {args.units:.6f} units @ {args.price_eur:.2f} EUR/unit = {total_eur:.2f} EUR")
+
     if sub == "import":
         from data.portfolio import csv_to_trades
         try:
@@ -154,6 +191,17 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
             print("  Perdida neta: no hay IRPF. Compensable con ganancias futuras.")
         else:
             print("  Ganancia neta cero: sin IRPF.")
+
+        if report.get("income_rows"):
+            print(f"\n  RENDIMIENTOS DEL CAPITAL MOBILIARIO {year} (dividendos + staking)")
+            print("  " + "-" * 50)
+            for r in report["income_rows"]:
+                d = r["date"]
+                date_str = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)
+                print(f"  {date_str:<12} {r['asset']:<16} {r['side']:<10} {r['amount_eur']:>8.2f} EUR")
+            print("  " + "-" * 50)
+            print(f"  Total rendimientos: {report['total_income_eur']:,.2f} EUR")
+            print(f"  Retencion estimada (19%): {report['total_income_irpf_eur']:,.2f} EUR")
         return
 
     if sub == "history":
@@ -166,6 +214,29 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
             d = t["date"]
             date_str = d.strftime("%Y-%m-%d") if hasattr(d, "strftime") else str(d)
             print(f"{date_str:<12} {t['asset']:<16} {t['side']:<5} {t['units']:>12.6f} {t['price_eur']:>10.2f}E {t['fee_eur']:>5.2f}E {(t['source'] or ''):.<12} {t['notes'] or ''}")
+        return
+
+    if sub == "history-chart":
+        import json
+        from data.models import UserPortfolioSnapshot
+        with get_session() as session:
+            snaps = session.query(UserPortfolioSnapshot).order_by(UserPortfolioSnapshot.snapshot_date).all()
+            snap_list = [{"date": s.snapshot_date, **json.loads(s.data_json)} for s in snaps]
+        if not snap_list:
+            print("Sin snapshots guardados todavia. Los snapshots se guardan automaticamente con el digest semanal.")
+            return
+        print("Evolucion semanal del portfolio")
+        print("=" * 80)
+        print(f"  {'Semana':<12} {'Total EUR':>12} {'BTC P&L':>10} {'ETH P&L':>10} {'IRPF est.':>10}")
+        print("  " + "-" * 56)
+        for s in snap_list:
+            print("  {:<12} {:>12,.0f} {:>+10,.0f} {:>+10,.0f} {:>10,.0f}".format(
+                s["date"],
+                s.get("total", 0),
+                s.get("btc_pnl", 0),
+                s.get("eth_pnl", 0),
+                s.get("irpf_estimate", 0),
+            ))
         return
 
     # show (default): 3 sections -- Crypto, ETF, Total portfolio
@@ -304,7 +375,109 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
         etf_pnl = etf_value_total - etf_invested_total
         etf_sign = "+" if etf_pnl >= 0 else ""
         print(f"  ETF invertido:    {etf_invested_total:>10,.2f} EUR  |  Valor: {etf_value_total:>10,.2f} EUR  |  PnL: {etf_sign}{etf_pnl:,.2f} EUR")
+
+    income_trades = [t for t in all_trades if t["side"] in ("dividend", "staking")]
+    if income_trades:
+        year_now = _dt.now().year
+        income_year = [t for t in income_trades if hasattr(t["date"], "year") and t["date"].year == year_now]
+        total_income = sum(t["price_eur"] for t in income_year)
+        if total_income > 0:
+            print(f"\n  Dividendos+Staking {year_now}: {total_income:,.2f} EUR (retencion estimada 19%: {total_income * 0.19:,.2f} EUR)")
+
     print("\n  Backup: python main.py portfolio export > mis_trades.csv")
     if not all_trades:
         print("\nNo hay operaciones registradas.")
         print("Usa: python main.py portfolio add-buy --asset BTC --units 0.001 --price-eur 45000 --source sparplan")
+
+
+def cmd_tax_headroom(args: argparse.Namespace) -> None:
+    """Show IRPF bracket headroom: realized gains vs margin to next bracket."""
+    from datetime import datetime as _dt
+    from data.database import init_db, get_session
+    from data.models import UserTrade
+    from data.portfolio import (
+        calculate_portfolio_status, calculate_tax_report, compute_tax_headroom
+    )
+    from data.market_data import fetch_prices
+    from alerts.discord_bot import (
+        BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP,
+        ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP,
+    )
+
+    year = args.year if args.year else _dt.now().year
+    init_db()
+
+    with get_session() as session:
+        rows = session.query(UserTrade).all()
+        all_trades = [
+            {
+                "date": t.date, "asset": t.asset, "asset_class": t.asset_class,
+                "side": t.side, "units": t.units, "price_eur": t.price_eur,
+                "fee_eur": t.fee_eur, "source": t.source, "notes": t.notes,
+            }
+            for t in rows
+        ]
+
+    if not all_trades:
+        print("No hay operaciones registradas.")
+        return
+
+    report = calculate_tax_report(all_trades, year)
+    realized = report["total_gain_eur"]
+    realized_irpf = report["total_irpf_eur"]
+    headroom_info = compute_tax_headroom(max(realized, 0.0))
+
+    prices = fetch_prices()
+    btc_price_eur = prices.get("btc_price_eur") or 0.0
+    eth_price_eur = prices.get("eth_price_eur") or 0.0
+
+    btc_trades = [t for t in all_trades if t["asset"] == "BTC"]
+    eth_trades = [t for t in all_trades if t["asset"] == "ETH"]
+
+    btc_unrealized = 0.0
+    eth_unrealized = 0.0
+    if btc_trades and btc_price_eur:
+        s = calculate_portfolio_status("BTC", btc_trades, btc_price_eur,
+                                       BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP)
+        btc_unrealized = max(s["unrealized_gain_eur"], 0.0)
+    if eth_trades and eth_price_eur:
+        s = calculate_portfolio_status("ETH", eth_trades, eth_price_eur,
+                                       ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP)
+        eth_unrealized = max(s["unrealized_gain_eur"], 0.0)
+
+    total_unrealized = btc_unrealized + eth_unrealized
+    total_if_sold = realized + total_unrealized
+    irpf_if_sold = calculate_tax_report(
+        all_trades + [
+            {"date": _dt.now(), "asset": "BTC", "side": "sell",
+             "units": 0, "price_eur": 0, "fee_eur": 0, "asset_class": "crypto", "source": "manual", "notes": None},
+        ],
+        year
+    )
+
+    from data.portfolio import compute_spanish_tax
+    irpf_if_sold_total = compute_spanish_tax(max(total_if_sold, 0.0))
+
+    print("CryptoTrader - Margen IRPF {}".format(year))
+    print("=" * 52)
+    print()
+    if realized <= 0:
+        print("  Plusvalias realizadas {}: {:.0f} EUR (sin ganancias)".format(year, realized))
+    else:
+        print("  Plusvalias realizadas {}:  {:>10,.0f} EUR".format(year, realized))
+        print("  IRPF sobre realizadas:    {:>10,.0f} EUR ({:.0f}%)".format(
+            realized_irpf, report["effective_rate_pct"]))
+        print("  Tramo actual:             {}".format(headroom_info["current_bracket_label"]))
+        if headroom_info["headroom_eur"] is not None:
+            print("  Margen hasta sig. tramo:  {:>10,.0f} EUR".format(headroom_info["headroom_eur"]))
+        else:
+            print("  Margen hasta sig. tramo:  (tramo maximo)")
+    print()
+    if total_unrealized > 0:
+        print("  Plusvalias no realizadas (BTC+ETH): {:>8,.0f} EUR".format(total_unrealized))
+        print("  Si vendieras todo BTC+ETH hoy:      {:>8,.0f} EUR adicionales".format(total_unrealized))
+        print("  Total ganancias combinadas:          {:>8,.0f} EUR".format(total_if_sold))
+        print("  IRPF estimado total:                 {:>8,.0f} EUR".format(irpf_if_sold_total))
+    else:
+        print("  Sin plusvalias no realizadas detectadas (precio no disponible o posicion en perdida).")
+    print()

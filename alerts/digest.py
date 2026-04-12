@@ -53,12 +53,15 @@ def _get_portfolio_summary(btc_price_eur, eth_price_eur) -> dict:
 
     irpf_total = 0.0
 
+    realized_gain_total = 0.0
+
     if btc_price_eur and trades_by_asset.get("BTC"):
         s = calculate_portfolio_status("BTC", trades_by_asset["BTC"], btc_price_eur,
                                        BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP)
         result["btc_value"] = s["current_value_eur"]
         result["btc_pnl"] = s["unrealized_gain_eur"] + s["realized_gain_eur"]
         irpf_total += s.get("irpf_estimate_eur") or 0.0
+        realized_gain_total += s.get("realized_gain_eur") or 0.0
 
     if eth_price_eur and trades_by_asset.get("ETH"):
         s = calculate_portfolio_status("ETH", trades_by_asset["ETH"], eth_price_eur,
@@ -66,11 +69,13 @@ def _get_portfolio_summary(btc_price_eur, eth_price_eur) -> dict:
         result["eth_value"] = s["current_value_eur"]
         result["eth_pnl"] = s["unrealized_gain_eur"] + s["realized_gain_eur"]
         irpf_total += s.get("irpf_estimate_eur") or 0.0
+        realized_gain_total += s.get("realized_gain_eur") or 0.0
 
     if not result:
         return {}
 
     result["irpf_total_eur"] = irpf_total
+    result["realized_gain_eur"] = realized_gain_total
 
     # ETF prices (lazy yfinance, optional -- falls back gracefully in CI)
     etf_prices = {}
@@ -235,6 +240,14 @@ def send_weekly_digest() -> bool:
         irpf = portfolio.get("irpf_total_eur", 0.0)
         if irpf and irpf > 0:
             lines.append("IRPF est.: {:,.0f} EUR (si vendieras hoy)".format(irpf))
+        realized = portfolio.get("realized_gain_eur", 0.0)
+        if realized and realized > 0:
+            from data.portfolio import compute_tax_headroom
+            hroom = compute_tax_headroom(realized)
+            if hroom["headroom_eur"] is not None:
+                lines.append("Margen IRPF: {:,.0f} EUR hasta siguiente tramo ({})".format(
+                    hroom["headroom_eur"], hroom["current_bracket_label"]
+                ))
         fields.append({"name": "Portfolio actual", "value": "\n".join(lines), "inline": False})
 
     # Block 4: Proximas senales -- distancia a cada umbral de alerta
@@ -310,5 +323,47 @@ def send_weekly_digest() -> bool:
     sent = send_discord_message(payload)
     with get_session() as session:
         _log_alert(session, "weekly_digest", "blue", btc_price, eth_price, eth_mvrv, sent)
+
+    if portfolio:
+        _save_portfolio_snapshot(portfolio)
+
     logger.info("Weekly digest sent: %s", sent)
     return sent
+
+
+def _save_portfolio_snapshot(portfolio: dict) -> None:
+    """Save a weekly portfolio snapshot (idempotent per ISO week)."""
+    import json
+    from data.models import UserPortfolioSnapshot
+
+    total = portfolio.get("btc_value", 0.0) + portfolio.get("eth_value", 0.0)
+    if "etf_value" in portfolio:
+        total += portfolio["etf_value"]
+
+    if total <= 0:
+        return
+
+    week_str = datetime.now(timezone.utc).strftime("%G-W%V")  # ISO week e.g. "2026-W15"
+
+    data = {
+        "btc_value": portfolio.get("btc_value", 0.0),
+        "eth_value": portfolio.get("eth_value", 0.0),
+        "etf_value": portfolio.get("etf_value", 0.0),
+        "total": total,
+        "btc_pnl": portfolio.get("btc_pnl", 0.0),
+        "eth_pnl": portfolio.get("eth_pnl", 0.0),
+        "irpf_estimate": portfolio.get("irpf_total_eur", 0.0),
+    }
+
+    try:
+        with get_session() as session:
+            existing = session.query(UserPortfolioSnapshot).filter_by(snapshot_date=week_str).first()
+            if not existing:
+                snap = UserPortfolioSnapshot(
+                    snapshot_date=week_str,
+                    data_json=json.dumps(data),
+                )
+                session.add(snap)
+        logger.info("Portfolio snapshot saved for %s", week_str)
+    except Exception as exc:
+        logger.warning("Failed to save portfolio snapshot: %s", exc)

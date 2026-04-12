@@ -1,7 +1,7 @@
 """FastAPI dashboard for CryptoTrader Advisor."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from data.database import init_db, get_session
 from data.market_data import fetch_prices, fetch_mvrv, fetch_funding_rate, fetch_fear_greed
-from data.models import AlertLog
+from data.models import AlertLog, UserPortfolioSnapshot
 from alerts.discord_bot import (
     BTC_CRASH_THRESHOLD, FUNDING_RATE_THRESHOLD,
     ETH_MVRV_CRITICAL, ETH_MVRV_LOW,
@@ -36,27 +36,30 @@ def _get_halving_cycle() -> dict:
     }
 
 
+def _alert_row_to_dict(r: AlertLog) -> dict:
+    return {
+        "timestamp": r.timestamp.strftime("%Y-%m-%d %H:%M") if r.timestamp else "",
+        "alert_type": r.alert_type,
+        "severity": r.severity,
+        "message": r.message,
+        "btc_price": r.btc_price,
+        "eth_price": r.eth_price,
+        "metric_value": r.metric_value,
+        "notified": bool(r.notified),
+    }
+
+
 def _get_alert_history(limit: int = 20) -> list[dict]:
-    """Get recent alert history from DB."""
+    """Get recent alert history from DB, excluding heartbeats."""
     try:
         with get_session() as session:
             rows = session.execute(
                 select(AlertLog)
+                .where(AlertLog.alert_type != "heartbeat")
                 .order_by(AlertLog.timestamp.desc())
                 .limit(limit)
             ).scalars().all()
-            return [
-                {
-                    "timestamp": r.timestamp.strftime("%Y-%m-%d %H:%M") if r.timestamp else "",
-                    "alert_type": r.alert_type,
-                    "severity": r.severity,
-                    "message": r.message,
-                    "btc_price": r.btc_price,
-                    "eth_price": r.eth_price,
-                    "metric_value": r.metric_value,
-                }
-                for r in rows
-            ]
+            return [_alert_row_to_dict(r) for r in rows]
     except Exception:
         return []
 
@@ -168,3 +171,39 @@ def api_status():
         "halving": halving,
         "alerts": alerts,
     }
+
+
+@app.get("/api/snapshots")
+def api_snapshots():
+    """Portfolio weekly snapshots for historical chart."""
+    import json
+    try:
+        with get_session() as session:
+            rows = session.query(UserPortfolioSnapshot).order_by(
+                UserPortfolioSnapshot.snapshot_date
+            ).all()
+            return [
+                {"date": r.snapshot_date, **json.loads(r.data_json)}
+                for r in rows
+            ]
+    except Exception as exc:
+        logger.error("Failed to fetch portfolio snapshots: %s", exc)
+        return []
+
+
+@app.get("/api/alerts")
+def api_alerts(days: int = 30, include_heartbeats: int = 0):
+    """Alert log history. Excludes heartbeats by default (?include_heartbeats=1 to include)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    try:
+        with get_session() as session:
+            q = select(AlertLog).where(AlertLog.timestamp >= cutoff)
+            if not include_heartbeats:
+                q = q.where(AlertLog.alert_type != "heartbeat")
+            rows = session.execute(
+                q.order_by(AlertLog.timestamp.desc())
+            ).scalars().all()
+            return [_alert_row_to_dict(r) for r in rows]
+    except Exception as exc:
+        logger.error("Failed to fetch alert log: %s", exc)
+        return []

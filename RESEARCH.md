@@ -212,17 +212,51 @@ Datos: CoinMetrics BTC CapMVRVCur + PriceUSD, 2010-2026. Split IS: 2011-2022 / O
 - Los niveles de precio del DCA-out ($80k, $100k...) siguen siendo el enfoque correcto.
 - Los analiticos on-chain de valoracion NO sirven como senales de salida en BTC.
 
-## Research 10: ETH/BTC ratio como senal de entrada en ETH (pendiente ejecucion)
+## Research 10: ETH/BTC ratio como senal de entrada en ETH (2026-04, EJECUTADO)
 
 Script: `research/eth_btc_ratio_research.py`
+Cache: `data/research_cache/eth_btc_ratio_results.txt`
 
 Hipotesis: cuando el ratio ETH/BTC cae al percentil 10 de una ventana rolling de 180 dias (ETH infravalorado relativo a BTC), ETH outperforma a BTC en los 7-30 dias siguientes.
 
-Setup: yfinance BTC-USD + ETH-USD daily desde 2017. Metrica = outperformance ETH vs BTC (ETH_fwd - BTC_fwd). Split IS <2023 / OOS >=2023. Cooldown 7d entre senales.
+Setup: yfinance BTC-USD + ETH-USD daily 2017-2026-04. Metrica = outperformance ETH vs BTC (ETH_fwd - BTC_fwd). Split IS <2023 / OOS >=2023. Cooldown 7d entre senales.
 
-**Estado: script creado, resultados pendientes de ejecutar (requiere internet/yfinance).**
-Ejecutar con: `python research/eth_btc_ratio_research.py`
-Resultados se guardan en `data/research_cache/eth_btc_ratio_results.txt`
+**Resultados (2026-04-12):**
+
+| Horizonte | N   | N_IS | N_OOS | Delta  | p-val  | WR  | IS OOS  | Veredicto |
+|-----------|-----|------|-------|--------|--------|-----|---------|-----------|
+| 7d        | 134 | 51   | 83    | -0.2pp | 0.7302 | 43% | -0.1 / +0.0% | DISCARD |
+| 14d       | 134 | 51   | 83    | -0.7pp | 0.6973 | 42% | -0.1 / -0.2% | DISCARD |
+| 30d       | 132 | 51   | 81    | -1.2pp | 0.6612 | 42% | +2.7 / -1.4% | DISCARD |
+
+**Veredicto: DISCARD.** p >> 0.70 en todos los horizontes. Delta negativo. OOS negativo a 14d y 30d. Sin edge estadistico.
+
+Hallazgo: ratio ETH/BTC actual = 0.031 (cerca del minimo historico 2017-2026, rango 0.016-0.113, media 0.047). La infravaloración relativa no predice outperformance a corto plazo.
+
+Accion: NO implementar como senal Discord.
+
+## Research 11: BTC multi-day crash como senal complementaria (2026-04, EJECUTADO)
+
+Script: `research/btc_multi_day_crash_research.py`
+Cache: `data/research_cache/btc_multi_day_results.txt`
+
+Hipotesis: un crash distribuido en 7 dias (ej. -20%) no capturado por la alerta 24h (-15%) tiene edge adicional como senal de compra.
+
+Setup: yfinance BTC-USD 2015-2026. Signal: caida de N% en W dias (W=3,5,7; N=-10,-15,-20,-25). Exclusion: si la alerta 24h (<-15%) se disparo en los ultimos 3 dias. Cooldown 7d. IS <2022, OOS >=2022.
+
+**Resultados clave (2026-04-12):**
+
+| W  | N   | N_sig | N_IS | N_OOS | Delta 7d | p-val | WR  | IS 7d | OOS 7d | Delta 30d | Veredicto |
+|----|-----|-------|------|-------|----------|-------|-----|-------|--------|-----------|-----------|
+| 3d | -15%| 29    | 24   | 5     | +2.6pp   | 0.140 | 62% | +3.5% | +6.2%  | +11.1%    | ORANGE    |
+| 7d | -20%| 23    | 19   | 4     | +3.8pp   | 0.018 | 74% | +5.5% | +3.2%  | +9.8%     | **RED**   |
+| 7d | -15%| 43    | 35   | 8     | +2.2pp   | 0.060 | 65% | +3.4% | +4.1%  | +4.9%     | ORANGE    |
+
+**Veredicto senal W=7d, N=-20%: RED** (p=0.018, delta=+3.8pp, OOS positivo). Criterios cumplidos.
+
+**Limitacion critica**: N_OOS = 4 es muy bajo. El veredicto RED es estadisticamente valido pero la senal real-world necesita mas eventos OOS antes de confiar en el edge completamente.
+
+Accion: **ORANGE de espera** -- la senal tiene edge pero N_OOS=4 insuficiente. Re-evaluar cuando N_OOS >= 8 (estimado 2027-2028 en ciclo alcista). Si se implementa: umbral -20% en 7d, cooldown 7d, severidad orange.
 
 ## Investigacion pendiente (baja prioridad)
 

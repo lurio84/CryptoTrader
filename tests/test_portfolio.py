@@ -14,6 +14,7 @@ from data.portfolio import (
     build_xirr_cash_flows,
     calculate_xirr,
     csv_to_trades,
+    compute_tax_headroom,
 )
 
 
@@ -309,3 +310,165 @@ def test_csv_to_trades_file_not_found():
     """Non-existent file raises FileNotFoundError."""
     with pytest.raises(FileNotFoundError):
         csv_to_trades("/nonexistent/path/trades.csv")
+
+
+# ---------------------------------------------------------------------------
+# compute_tax_headroom
+# ---------------------------------------------------------------------------
+
+def test_tax_headroom_first_bracket():
+    """1000 EUR realized -> in 19% bracket, headroom = 5000 to 6000 limit."""
+    h = compute_tax_headroom(1_000.0)
+    assert h["current_rate_pct"] == pytest.approx(19.0)
+    assert h["headroom_eur"] == pytest.approx(5_000.0)
+    assert "19%" in h["current_bracket_label"]
+
+
+def test_tax_headroom_second_bracket():
+    """10000 EUR realized -> in 21% bracket (between 6k and 50k)."""
+    h = compute_tax_headroom(10_000.0)
+    assert h["current_rate_pct"] == pytest.approx(21.0)
+    assert h["headroom_eur"] == pytest.approx(40_000.0)
+
+
+def test_tax_headroom_zero():
+    """0 EUR realized -> first bracket, full headroom of 6000."""
+    h = compute_tax_headroom(0.0)
+    assert h["current_rate_pct"] == pytest.approx(19.0)
+    assert h["headroom_eur"] == pytest.approx(6_000.0)
+
+
+def test_tax_headroom_top_bracket():
+    """400000 EUR realized -> top bracket, no headroom."""
+    h = compute_tax_headroom(400_000.0)
+    assert h["current_rate_pct"] == pytest.approx(28.0)
+    assert h["headroom_eur"] is None
+
+
+# ---------------------------------------------------------------------------
+# cmd_tax_headroom (CLI integration)
+# ---------------------------------------------------------------------------
+
+def test_cmd_tax_headroom_no_trades(db_session, capsys):
+    """With empty DB, tax-headroom prints informational message."""
+    import argparse
+    from contextlib import contextmanager
+    from unittest.mock import patch
+
+    @contextmanager
+    def _session_ctx():
+        yield db_session
+
+    args = argparse.Namespace(year=2024)
+    with (
+        patch("data.database.get_session", _session_ctx),
+        patch("data.database.init_db"),
+        patch("data.market_data.fetch_prices", return_value={
+            "btc_price_eur": 70_000.0, "eth_price_eur": 1_800.0,
+        }),
+    ):
+        from cli.commands_portfolio import cmd_tax_headroom
+        cmd_tax_headroom(args)
+
+    out = capsys.readouterr().out
+    assert "No hay" in out or "sin ganancias" in out.lower() or "realizadas" in out.lower()
+
+
+def test_cmd_tax_headroom_with_realized_gains(db_session, capsys):
+    """With sell trades, shows bracket and headroom."""
+    import argparse
+    from contextlib import contextmanager
+    from datetime import datetime as _dt
+    from unittest.mock import patch
+    from data.models import UserTrade
+
+    db_session.add(UserTrade(
+        date=_dt(2024, 1, 1), asset="BTC", asset_class="crypto",
+        side="buy", units=0.1, price_eur=30_000.0, fee_eur=0.0, source="sparplan",
+    ))
+    db_session.add(UserTrade(
+        date=_dt(2024, 6, 1), asset="BTC", asset_class="crypto",
+        side="sell", units=0.05, price_eur=60_000.0, fee_eur=0.0, source="dca_out",
+    ))
+    db_session.commit()
+
+    @contextmanager
+    def _session_ctx():
+        yield db_session
+
+    args = argparse.Namespace(year=2024)
+    with (
+        patch("data.database.get_session", _session_ctx),
+        patch("data.database.init_db"),
+        patch("data.market_data.fetch_prices", return_value={
+            "btc_price_eur": 70_000.0, "eth_price_eur": 1_800.0,
+        }),
+    ):
+        from cli.commands_portfolio import cmd_tax_headroom
+        cmd_tax_headroom(args)
+
+    out = capsys.readouterr().out
+    assert "2024" in out
+    assert "Margen" in out
+    assert "tramo" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# Dividends and staking in calculate_portfolio_status and calculate_tax_report
+# ---------------------------------------------------------------------------
+
+_BASE_TRADE = {
+    "date": datetime(2024, 1, 1), "asset": "BTC", "asset_class": "crypto",
+    "side": "buy", "units": 0.1, "price_eur": 30_000.0, "fee_eur": 0.0, "source": "sparplan", "notes": None,
+}
+
+
+def test_fifo_ignores_dividend_side():
+    """dividend records must NOT affect FIFO cost basis or units_held."""
+    trades = [
+        {**_BASE_TRADE, "asset": "REALTY_INCOME", "asset_class": "etf",
+         "side": "dividend", "units": 0.0, "price_eur": 12.50},
+    ]
+    s = calculate_portfolio_status("REALTY_INCOME", trades, 55.0, 1_000_000, 1)
+    assert s["units_held"] == pytest.approx(0.0)
+    assert s["realized_gain_eur"] == pytest.approx(0.0)
+
+
+def test_fifo_ignores_staking_side():
+    """staking records must NOT affect FIFO cost basis."""
+    trades = [
+        {**_BASE_TRADE, "asset": "ETH", "side": "staking", "units": 0.005, "price_eur": 1_800.0},
+    ]
+    s = calculate_portfolio_status("ETH", trades, 2_000.0, 3_000, 1_000)
+    assert s["units_held"] == pytest.approx(0.0)
+
+
+def test_tax_report_separates_income_from_gains():
+    """calculate_tax_report returns income_rows separately from capital gains."""
+    trades = [
+        # Buy BTC and sell it for a gain
+        {**_BASE_TRADE},
+        {**_BASE_TRADE, "date": datetime(2024, 6, 1), "side": "sell", "units": 0.05, "price_eur": 60_000.0},
+        # Dividend record (capital income, not gain)
+        {**_BASE_TRADE, "asset": "REALTY_INCOME", "asset_class": "etf",
+         "date": datetime(2024, 3, 1), "side": "dividend", "units": 0.0, "price_eur": 12.50},
+    ]
+    report = calculate_tax_report(trades, 2024)
+
+    assert report["total_gain_eur"] > 0          # BTC sell gain
+    assert len(report["rows"]) == 1               # only the sell
+    assert len(report["income_rows"]) == 1        # only the dividend
+    assert report["income_rows"][0]["amount_eur"] == pytest.approx(12.50)
+    assert report["total_income_eur"] == pytest.approx(12.50)
+    assert report["total_income_irpf_eur"] == pytest.approx(12.50 * 0.19)
+
+
+def test_tax_report_income_year_filter():
+    """Dividend from different year not included in target year income_rows."""
+    trades = [
+        {**_BASE_TRADE, "asset": "REALTY_INCOME", "asset_class": "etf",
+         "date": datetime(2023, 3, 1), "side": "dividend", "units": 0.0, "price_eur": 12.50},
+    ]
+    report = calculate_tax_report(trades, 2024)
+    assert len(report["income_rows"]) == 0
+    assert report["total_income_eur"] == pytest.approx(0.0)

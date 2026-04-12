@@ -104,6 +104,28 @@ def test_drift_check_btc_overweight_shown(db_session, capsys):
     assert "REBALANCEAR" in out
 
 
+def test_drift_check_suggestions_shown_on_drift(db_session, capsys):
+    """When drift >10pp, 'Para rebalancear:' block with buy/sell amounts is shown."""
+    # BTC only portfolio -> BTC ~100% vs 22.86% target (overweight -> Vende)
+    # ETH at 0 units but price known -> drift only -5.71pp, below threshold
+    _add_buy(db_session, "BTC", 1.0, 72_000.0)
+
+    _run_drift_check(db_session, etf_prices={
+        "SP500": None, "SEMICONDUCTORS": None,
+        "REALTY_INCOME": None, "URANIUM": None,
+    })
+    out = capsys.readouterr().out
+
+    assert "Para rebalancear:" in out
+    assert "Vende" in out
+    assert "BTC" in out
+    # Amount should be non-zero
+    import re
+    amounts = re.findall(r"(?:Compra|Vende) (\d+) EUR", out)
+    assert amounts, "No EUR amount found in suggestions"
+    assert int(amounts[0]) > 0
+
+
 def test_drift_check_no_discord_without_notify(db_session, capsys):
     """Without --notify, no Discord alerts sent even with large drift."""
     _add_buy(db_session, "BTC", 1.0, 72_000.0)

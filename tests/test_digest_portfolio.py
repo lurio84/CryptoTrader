@@ -167,3 +167,44 @@ def test_digest_no_irpf_when_no_gains(db_session):
     field = _get_portfolio_field(payload)
     assert field is not None
     assert "IRPF est." not in field
+
+
+def test_digest_saves_portfolio_snapshot(db_session):
+    """Digest saves a UserPortfolioSnapshot after sending."""
+    from data.models import UserPortfolioSnapshot
+    _add_buy(db_session, "BTC", 0.5, 60_000.0)
+
+    _run_digest(db_session, etf_prices={
+        "SP500": None, "SEMICONDUCTORS": None,
+        "REALTY_INCOME": None, "URANIUM": None,
+    })
+
+    snaps = db_session.query(UserPortfolioSnapshot).all()
+    assert len(snaps) == 1
+    import json
+    data = json.loads(snaps[0].data_json)
+    assert data["btc_value"] > 0
+    assert "total" in data
+
+
+def test_digest_snapshot_idempotent(db_session):
+    """Second digest call in same ISO week does not duplicate snapshot."""
+    from data.models import UserPortfolioSnapshot
+    _add_buy(db_session, "BTC", 0.5, 60_000.0)
+
+    _run_digest(db_session, etf_prices={
+        "SP500": None, "SEMICONDUCTORS": None,
+        "REALTY_INCOME": None, "URANIUM": None,
+    })
+    # Manually reset the weekly_digest cooldown so digest can run again
+    from data.models import AlertLog
+    db_session.query(AlertLog).filter_by(alert_type="weekly_digest").delete()
+    db_session.commit()
+
+    _run_digest(db_session, etf_prices={
+        "SP500": None, "SEMICONDUCTORS": None,
+        "REALTY_INCOME": None, "URANIUM": None,
+    })
+
+    snaps = db_session.query(UserPortfolioSnapshot).all()
+    assert len(snaps) == 1  # idempotent: still only one snapshot for this ISO week

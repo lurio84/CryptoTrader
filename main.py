@@ -4,7 +4,7 @@ import argparse
 import sys
 
 from cli.commands_ops import cmd_check, cmd_digest, cmd_dashboard, cmd_monitor, cmd_drift_check, cmd_db_cleanup
-from cli.commands_portfolio import cmd_portfolio
+from cli.commands_portfolio import cmd_portfolio, cmd_tax_headroom
 from cli.commands_analysis import cmd_rebalance, cmd_retirement_plan
 from cli.commands_data import cmd_collect, cmd_update, cmd_backtest, cmd_sentiment, cmd_dca_backtest, cmd_info, STRATEGIES
 
@@ -100,11 +100,24 @@ def main() -> None:
 
     port_sub.add_parser("show", help="Show portfolio status with FIFO P&L and IRPF estimate")
     port_sub.add_parser("history", help="List all registered trades")
+    port_sub.add_parser("history-chart", help="Show weekly portfolio evolution from snapshots")
     port_sub.add_parser("export", help="Export all trades as CSV (for backup)")
 
     p_import = port_sub.add_parser("import", help="Import trades from CSV file (same format as 'portfolio export')")
     p_import.add_argument("file", help="Path to CSV file")
     p_import.add_argument("--dry-run", action="store_true", help="Parse and validate without inserting into DB")
+
+    p_div = port_sub.add_parser("add-dividend", help="Registrar dividendo recibido (rendimiento capital mobiliario)")
+    p_div.add_argument("--asset", required=True, choices=_all_assets, help="Asset que pago el dividendo (e.g. REALTY_INCOME)")
+    p_div.add_argument("--amount-eur", type=float, required=True, dest="amount_eur", help="Importe del dividendo en EUR")
+    p_div.add_argument("--date", help="Fecha YYYY-MM-DD (default: hoy)")
+    p_div.add_argument("--notes", help="Comentario opcional")
+
+    p_stk = port_sub.add_parser("add-staking", help="Registrar recompensa de staking ETH")
+    p_stk.add_argument("--units", type=float, required=True, help="ETH recibidos como recompensa")
+    p_stk.add_argument("--price-eur", type=float, required=True, dest="price_eur", help="Precio ETH en EUR en el momento de la recompensa")
+    p_stk.add_argument("--date", help="Fecha YYYY-MM-DD (default: hoy)")
+    p_stk.add_argument("--notes", help="Comentario opcional")
 
     p_tax = port_sub.add_parser("tax-report", help="Informe IRPF anual de ventas realizadas")
     p_tax.add_argument("--year", type=int, default=None, help="Anno fiscal (default: anno en curso)")
@@ -126,6 +139,10 @@ def main() -> None:
     # drift-check
     p_drift = subparsers.add_parser("drift-check", help="Check portfolio drift vs Sparplan targets")
     p_drift.add_argument("--notify", action="store_true", help="Send Discord alert if drift >10pp")
+
+    # tax-headroom
+    p_headroom = subparsers.add_parser("tax-headroom", help="Margen IRPF del anno: plusvalias realizadas vs tramo actual")
+    p_headroom.add_argument("--year", type=int, default=None, help="Anno fiscal (default: anno en curso)")
 
     # db-cleanup
     p_db_cleanup = subparsers.add_parser("db-cleanup", help="Purgar registros viejos de alert_log")
@@ -151,6 +168,7 @@ def main() -> None:
         "rebalance":      cmd_rebalance,
         "retirement-plan":cmd_retirement_plan,
         "drift-check":    cmd_drift_check,
+        "tax-headroom":   cmd_tax_headroom,
         "db-cleanup":     cmd_db_cleanup,
         "info":           cmd_info,
     }

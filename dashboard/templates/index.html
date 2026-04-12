@@ -338,6 +338,14 @@
         .badge-red { background: #2a0a0a; color: #ef4444; }
         .badge-orange { background: #1a0f00; color: #f59e0b; }
         .badge-yellow { background: #1a1700; color: #eab308; }
+        .badge-green { background: #0a1f0a; color: #22c55e; }
+
+        .filter-btn {
+            background: #27272a; border: 1px solid #3f3f46; color: #a1a1aa;
+            padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
+        }
+        .filter-btn:hover { background: #3f3f46; color: #e4e4e7; }
+        .active-filter { background: #3f3f46; color: #e4e4e7; border-color: #52525b; }
 
         .empty-state {
             text-align: center;
@@ -533,6 +541,25 @@
             {% endif %}
         </div>
 
+        <!-- Alert Log History (dynamic, /api/alerts) -->
+        <div class="history-section" style="margin-top:1.5rem;">
+            <div class="history-header" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+                <h3 style="margin:0;">Historial de alertas</h3>
+                <div style="display:flex;gap:0.5rem;align-items:center;font-size:0.85rem;">
+                    <span style="color:#71717a;">Ultimos:</span>
+                    <button onclick="loadAlerts(30)" id="btn-30" class="filter-btn active-filter">30d</button>
+                    <button onclick="loadAlerts(60)" id="btn-60" class="filter-btn">60d</button>
+                    <button onclick="loadAlerts(90)" id="btn-90" class="filter-btn">90d</button>
+                    <label style="margin-left:0.5rem;color:#71717a;display:flex;align-items:center;gap:0.25rem;">
+                        <input type="checkbox" id="chk-heartbeat" onchange="loadAlerts()"> heartbeats
+                    </label>
+                </div>
+            </div>
+            <div id="alert-log-container" style="margin-top:0.75rem;">
+                <div class="empty-state">Cargando...</div>
+            </div>
+        </div>
+
         <footer>CryptoTrader Advisor v0.1.0 -- Data for informational purposes only, not financial advice</footer>
     </div>
 
@@ -715,6 +742,42 @@
     updateDashboard();
     // Auto-refresh every 60 seconds
     setInterval(updateDashboard, 60000);
+
+    var _alertDays = 30;
+
+    function loadAlerts(days) {
+        if (days) {
+            _alertDays = days;
+            ["30","60","90"].forEach(function(d) {
+                var btn = document.getElementById("btn-" + d);
+                if (btn) { btn.className = d === String(days) ? "filter-btn active-filter" : "filter-btn"; }
+            });
+        }
+        var hb = document.getElementById("chk-heartbeat").checked ? 1 : 0;
+        var url = "/api/alerts?days=" + _alertDays + "&include_heartbeats=" + hb;
+        var container = document.getElementById("alert-log-container");
+        fetch(url).then(function(r) { return r.json(); }).then(function(rows) {
+            if (!rows || rows.length === 0) {
+                container.innerHTML = '<div class="empty-state">Sin alertas en los ultimos ' + _alertDays + ' dias.</div>';
+                return;
+            }
+            var html = '<table><thead><tr><th>Fecha</th><th>Tipo</th><th>Severidad</th><th>BTC</th><th>Metrica</th><th>Notif.</th></tr></thead><tbody>';
+            rows.forEach(function(r) {
+                var sev = r.severity || "green";
+                var badge = '<span class="badge badge-' + sev + '">' + sev.toUpperCase() + '</span>';
+                var btc = r.btc_price ? '$' + Math.round(r.btc_price).toLocaleString() : '-';
+                var met = r.metric_value !== null && r.metric_value !== undefined ? Number(r.metric_value).toFixed(3) : '-';
+                var notif = r.notified ? '&#10003;' : '-';
+                html += '<tr><td>' + r.timestamp + '</td><td style="font-weight:500;">' + r.alert_type + '</td><td>' + badge + '</td><td>' + btc + '</td><td>' + met + '</td><td>' + notif + '</td></tr>';
+            });
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }).catch(function() {
+            container.innerHTML = '<div class="empty-state">Error cargando historial.</div>';
+        });
+    }
+
+    loadAlerts(30);
     </script>
 </body>
 </html>

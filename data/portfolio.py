@@ -132,6 +132,7 @@ def calculate_portfolio_status(
             realized_gain += proceeds - cost_basis
             total_proceeds += proceeds
             sell_count += 1
+        # dividend and staking: income records, not FIFO events (ignored here)
 
     units_held = fifo.total_units
     avg_cost = fifo.avg_cost_eur
@@ -192,13 +193,28 @@ def calculate_tax_report(all_trades: list[dict], year: int) -> dict:
       - total_irpf_eur: estimated IRPF on total_gain_eur
       - effective_rate_pct: effective tax rate
       - bracket_breakdown: list[dict] with (limit_label, rate, tax_eur) per bracket
+      - income_rows: list[dict] — dividends + staking income in the year
+      - total_income_eur: total capital income (19% flat rate)
+      - total_income_irpf_eur: estimated 19% retention on income
     """
     from collections import defaultdict
 
     # Group trades by asset, sort globally by date for FIFO correctness
     assets = defaultdict(list)
+    income_rows: list[dict] = []
     for t in sorted(all_trades, key=lambda x: x["date"]):
-        assets[t["asset"]].append(t)
+        if t["side"] in ("dividend", "staking"):
+            trade_date = t["date"]
+            trade_year = trade_date.year if hasattr(trade_date, "year") else int(str(trade_date)[:4])
+            if trade_year == year:
+                income_rows.append({
+                    "date": trade_date,
+                    "asset": t["asset"],
+                    "side": t["side"],
+                    "amount_eur": t["price_eur"],  # price_eur stores the EUR amount for income records
+                })
+        else:
+            assets[t["asset"]].append(t)
 
     rows: list[dict] = []
 
@@ -249,6 +265,9 @@ def calculate_tax_report(all_trades: list[dict], year: int) -> dict:
             if total_gain <= limit:
                 break
 
+    total_income = sum(r["amount_eur"] for r in income_rows)
+    total_income_irpf = total_income * 0.19  # tipo minimo rendimientos capital mobiliario
+
     return {
         "year": year,
         "rows": rows,
@@ -256,6 +275,46 @@ def calculate_tax_report(all_trades: list[dict], year: int) -> dict:
         "total_irpf_eur": total_irpf,
         "effective_rate_pct": effective_rate,
         "bracket_breakdown": bracket_breakdown,
+        "income_rows": income_rows,
+        "total_income_eur": total_income,
+        "total_income_irpf_eur": total_income_irpf,
+    }
+
+
+# ---------------------------------------------------------------------------
+# IRPF headroom helper
+# ---------------------------------------------------------------------------
+
+_BRACKET_LIMITS = [6_000, 50_000, 200_000, 300_000]
+_BRACKET_LABELS = ["19% (<=6.000 EUR)", "21% (6k-50k)", "23% (50k-200k)", "27% (200k-300k)", "28% (>300k)"]
+_BRACKET_RATES  = [0.19, 0.21, 0.23, 0.27, 0.28]
+
+
+def compute_tax_headroom(realized_eur: float) -> dict:
+    """Return IRPF bracket info and headroom to next bracket for realized gains.
+
+    Returns dict:
+      current_bracket_label, current_rate_pct,
+      headroom_eur (None if in top bracket),
+      next_bracket_limit (None if top bracket)
+    """
+    limits = _BRACKET_LIMITS + [None]  # None = top bracket
+    for i, (limit, rate, label) in enumerate(zip(limits, _BRACKET_RATES, _BRACKET_LABELS)):
+        threshold = limit if limit is not None else float("inf")
+        if realized_eur <= threshold:
+            headroom = (threshold - realized_eur) if limit is not None else None
+            return {
+                "current_bracket_label": label,
+                "current_rate_pct": rate * 100,
+                "headroom_eur": headroom,
+                "next_bracket_limit": limit,
+            }
+    # Fallback: top bracket
+    return {
+        "current_bracket_label": _BRACKET_LABELS[-1],
+        "current_rate_pct": _BRACKET_RATES[-1] * 100,
+        "headroom_eur": None,
+        "next_bracket_limit": None,
     }
 
 

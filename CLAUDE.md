@@ -42,6 +42,12 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 - yfinance: SOLO LOCAL (portfolio/rebalance/retirement-plan/drift-check). NUNCA en alerts/ ni CI.
 - Digest incluye bloque "Portfolio actual" (crypto siempre, ETFs si yfinance disponible).
 - Digest incluye linea "IRPF est.: X EUR (si vendieras hoy)" si hay ganancias no realizadas en BTC/ETH.
+- Digest incluye "Margen IRPF: X EUR hasta siguiente tramo" si hay ganancias realizadas en el anno.
+- Digest guarda snapshot semanal en `user_portfolio_snapshot` (idempotente por semana ISO).
+- Dashboard: endpoint `/api/alerts?days=30` (excluye heartbeats por defecto), `/api/snapshots`.
+- `drift-check` muestra "Para rebalancear: Compra/Vende X EUR de ASSET" para activos con drift >10pp.
+- `user_trade.side`: valores validos: "buy", "sell", "dividend", "staking". Sin CHECK constraint en DB.
+- `user_portfolio_snapshot`: tabla nueva (no tocar `portfolio_snapshots` que es infraestructura backtest).
 - Ver `RESEARCH.md` para todos los hallazgos del research y senales descartadas
 
 ## Sistema en produccion
@@ -73,9 +79,12 @@ python main.py rebalance --btc 0.05 --eth 0.5 --sp500 5000 --semis 1200 --realty
 python main.py portfolio add-buy  --asset BTC --units 0.001 --price-eur 45000 --source sparplan
 python main.py portfolio add-buy  --asset SP500 --units 1.5 --price-eur 480 --source sparplan
 python main.py portfolio add-sell --asset BTC --units 0.0003 --price-eur 87000 --source dca_out
-python main.py portfolio show / history / export
+python main.py portfolio show / history / history-chart / export
 python main.py portfolio import trades.csv [--dry-run]     # Importar trades desde CSV
-python main.py portfolio tax-report [--year 2024] [--csv]  # Informe IRPF anual
+python main.py portfolio tax-report [--year 2024] [--csv]  # Informe IRPF anual (plusvalias + rendimientos)
+python main.py portfolio add-dividend --asset REALTY_INCOME --amount-eur 12.50 [--date 2024-03-15]
+python main.py portfolio add-staking  --asset ETH --units 0.005 --price-eur 1800 [--date 2024-03-15]
+python main.py tax-headroom [--year 2024]                  # Margen IRPF: realizadas vs tramo actual
 
 # Monte Carlo jubilacion
 python main.py retirement-plan [--age 35 --retire-age 60 --target-eur 800000]
@@ -140,14 +149,15 @@ research/                 -- Scripts standalone de research (excluidos de contex
 
 ## DB Schema (resumen)
 
-SQLite en `data/cryptotrader.db`. 4 tablas relevantes:
+SQLite en `data/cryptotrader.db`. Tablas relevantes:
 
 | Tabla | Columnas clave | Uso |
 |---|---|---|
 | `alert_log` | id, alert_type, severity, btc_price, eth_price, metric_value, notified, timestamp | Deduplicacion alertas |
-| `user_trade` | id, asset, asset_class, units, price_eur, fee_eur, source, trade_date | Portfolio FIFO |
+| `user_trade` | id, asset, asset_class, units, price_eur, fee_eur, source, side, trade_date | Portfolio FIFO (side: buy/sell/dividend/staking) |
 | `candle` | symbol, timestamp, open, high, low, close, volume | Datos OHLCV (backtest) |
-| `portfolio_snapshot` | id, snapshot_date, data_json | Snapshots historicos |
+| `user_portfolio_snapshot` | id, snapshot_date (ISO week "YYYY-Www"), data_json | Snapshots semanales portfolio personal |
+| `portfolio_snapshots` | id, total_value_usdt, ... | Infraestructura backtest -- NO usar para portfolio personal |
 
 Migracion de referencia: `data/database.py:_migrate_user_trade()` (idempotente, PRAGMA table_info).
 ORM completo en `data/models.py`.
