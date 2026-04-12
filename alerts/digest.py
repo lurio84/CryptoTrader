@@ -85,8 +85,10 @@ def _get_portfolio_summary(btc_price_eur, eth_price_eur) -> dict:
     try:
         from data.etf_prices import fetch_all_etf_prices_eur
         etf_prices = fetch_all_etf_prices_eur() or {}
-    except Exception:
-        pass
+    except ImportError:
+        logger.info("yfinance not installed -- ETF prices skipped in digest")
+    except Exception as exc:
+        logger.warning("ETF price fetch failed in digest: %s", exc)
 
     etf_total = 0.0
     etf_invested = 0.0

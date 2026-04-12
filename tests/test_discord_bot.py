@@ -11,7 +11,7 @@ Pattern: patch as close to usage as possible, i.e. "alerts.discord_bot.X".
 """
 
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from data.models import AlertLog
@@ -411,7 +411,7 @@ def test_weekly_digest_handles_none_prices(db_session):
 
 def _add_heartbeat(db_session, hours_ago: float):
     """Helper: insert a heartbeat entry with the given age."""
-    ts = datetime.utcnow() - timedelta(hours=hours_ago)
+    ts = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours_ago)
     entry = AlertLog(
         timestamp=ts, alert_type="heartbeat", severity="green",
         message="heartbeat", btc_price=50000.0, eth_price=2500.0,
@@ -476,7 +476,7 @@ def test_dead_canary_dedup(db_session):
     _add_heartbeat(db_session, hours_ago=12)
     # Simulate a dead_canary alert already sent 1h ago
     db_session.add(AlertLog(
-        timestamp=datetime.utcnow() - timedelta(hours=1),
+        timestamp=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1),
         alert_type="dead_canary", severity="red",
         message="dead_canary", btc_price=None, eth_price=None,
         metric_value=12.0, notified=1,

@@ -162,13 +162,14 @@ def cmd_monitor(args: argparse.Namespace) -> None:
 
 def cmd_drift_check(args: argparse.Namespace) -> None:
     """Check portfolio drift vs Sparplan targets. Sends Discord alert if >10pp drift."""
+    import logging
     from data.market_data import fetch_prices
     from data.models import UserTrade
     from data.database import get_session
-    from cli.constants import SPARPLAN_TARGETS
+    from cli.constants import SPARPLAN_TARGETS, DRIFT_THRESHOLD
 
-    DRIFT_THRESHOLD = 10.0
     COOLDOWN_DRIFT = 168  # 7 days
+    _logger = logging.getLogger(__name__)
 
     init_db()
     prices = fetch_prices()
@@ -179,8 +180,10 @@ def cmd_drift_check(args: argparse.Namespace) -> None:
     try:
         from data.etf_prices import fetch_all_etf_prices_eur
         etf_prices = fetch_all_etf_prices_eur() or {}
-    except Exception:
-        pass
+    except ImportError:
+        _logger.info("yfinance not installed -- ETF prices skipped in drift-check")
+    except Exception as exc:
+        _logger.warning("ETF price fetch failed in drift-check: %s", exc)
 
     asset_prices_eur = {
         "BTC": btc_price_eur,
@@ -301,14 +304,14 @@ def cmd_drift_check(args: argparse.Namespace) -> None:
 
 def cmd_db_cleanup(args: argparse.Namespace) -> None:
     """Purge old alert_log records to keep DB size under control."""
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     from sqlalchemy import delete
     from data.database import get_session
     from data.models import AlertLog
 
     keep_days = getattr(args, "keep_days", 90)
     init_db()
-    cutoff = (datetime.utcnow() - timedelta(days=keep_days)).replace(tzinfo=None)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).replace(tzinfo=None)
     with get_session() as session:
         result = session.execute(
             delete(AlertLog).where(AlertLog.timestamp < cutoff)

@@ -1,25 +1,36 @@
 """Portfolio tracker command: add-buy, add-sell, show, history, export."""
 
-import argparse
+from __future__ import annotations
 
+import argparse
+import logging
+from datetime import datetime
+
+import requests
+from sqlalchemy import select
+
+from cli.constants import (
+    SPARPLAN_TARGETS,
+    DRIFT_THRESHOLD,
+    DRIFT_WATCH_THRESHOLD,
+    detect_asset_class,
+)
 from data.database import init_db, get_session
-from cli.constants import SPARPLAN_TARGETS, detect_asset_class
+from data.models import UserTrade
+from data.portfolio import calculate_portfolio_status, trades_to_csv, calculate_tax_report
+
+logger = logging.getLogger(__name__)
 
 
 def cmd_portfolio(args: argparse.Namespace) -> None:
     """Personal portfolio tracker with FIFO cost basis and IRPF estimation."""
     init_db()
-    import requests as req
-    from datetime import datetime as _dt
-    from sqlalchemy import select as _select
-    from data.models import UserTrade
-    from data.portfolio import calculate_portfolio_status, trades_to_csv, calculate_tax_report
 
     sub = args.portfolio_cmd
 
     if sub == "add-buy" or sub == "add-sell":
         side = "buy" if sub == "add-buy" else "sell"
-        trade_date = _dt.strptime(args.date, "%Y-%m-%d") if args.date else _dt.now()
+        trade_date = datetime.strptime(args.date, "%Y-%m-%d") if args.date else datetime.now()
         asset_upper = args.asset.upper()
         trade = UserTrade(
             date=trade_date,
@@ -39,7 +50,7 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
         return
 
     if sub == "add-dividend":
-        trade_date = _dt.strptime(args.date, "%Y-%m-%d") if args.date else _dt.now()
+        trade_date = datetime.strptime(args.date, "%Y-%m-%d") if args.date else datetime.now()
         asset_upper = args.asset.upper()
         trade = UserTrade(
             date=trade_date,
@@ -58,7 +69,7 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
         return
 
     if sub == "add-staking":
-        trade_date = _dt.strptime(args.date, "%Y-%m-%d") if args.date else _dt.now()
+        trade_date = datetime.strptime(args.date, "%Y-%m-%d") if args.date else datetime.now()
         trade = UserTrade(
             date=trade_date,
             asset="ETH",
@@ -105,7 +116,7 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
     etf_prices: dict = {}
     if sub in ("show", None):
         try:
-            resp = req.get(
+            resp = requests.get(
                 "https://api.coingecko.com/api/v3/simple/price",
                 params={"ids": "bitcoin,ethereum", "vs_currencies": "eur"},
                 timeout=10,
@@ -114,12 +125,16 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
             cg = resp.json()
             btc_price_eur = cg["bitcoin"]["eur"]
             eth_price_eur = cg["ethereum"]["eur"]
-        except Exception:
-            pass
+        except (requests.RequestException, ValueError, KeyError) as exc:
+            logger.warning("CoinGecko price fetch failed in portfolio show: %s", exc)
         try:
             from data.etf_prices import fetch_all_etf_prices_eur
-            etf_prices = fetch_all_etf_prices_eur()
-        except Exception:
+            etf_prices = fetch_all_etf_prices_eur() or {}
+        except ImportError:
+            logger.info("yfinance not installed -- ETF prices skipped in portfolio show")
+            etf_prices = {}
+        except Exception as exc:
+            logger.warning("ETF price fetch failed in portfolio show: %s", exc)
             etf_prices = {}
 
     def _row_to_dict(t: UserTrade) -> dict:
@@ -131,7 +146,7 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
         }
 
     with get_session() as session:
-        rows = session.execute(_select(UserTrade).order_by(UserTrade.date)).scalars().all()
+        rows = session.execute(select(UserTrade).order_by(UserTrade.date)).scalars().all()
         all_trades = [_row_to_dict(t) for t in rows]
 
     crypto_trades = [t for t in all_trades if t.get("asset_class", "crypto") == "crypto"]
@@ -144,7 +159,7 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
         return
 
     if sub == "tax-report":
-        year = args.year or _dt.now().year
+        year = args.year or datetime.now().year
         report = calculate_tax_report(all_trades, year)
 
         if args.csv:
@@ -345,7 +360,6 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
         print("  [!] Precio ETH no disponible - ETH excluido del total (precio: 0)")
 
     if total_portfolio > 0:
-        THRESHOLD = 10.0
         print(f"\n  {'Activo':<16} {'Valor EUR':>10}  {'Actual%':>7}  {'Target%':>7}  {'Drift':>7}  Estado")
         print(f"  {'-'*16} {'-'*10}  {'-'*7}  {'-'*7}  {'-'*7}  ------")
         needs_rebalance = False
@@ -353,17 +367,17 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
             val = all_values.get(asset, 0.0)
             actual_pct = val / total_portfolio * 100
             drift = actual_pct - target_pct
-            if abs(drift) > THRESHOLD:
+            if abs(drift) > DRIFT_THRESHOLD:
                 estado = "[REBALANCEAR]"
                 needs_rebalance = True
-            elif abs(drift) > THRESHOLD / 2:
+            elif abs(drift) > DRIFT_WATCH_THRESHOLD:
                 estado = "[WATCH]"
             else:
                 estado = "[OK]"
             print(f"  {asset:<16} {val:>10,.0f}E  {actual_pct:>6.1f}%  {target_pct:>6.1f}%  {drift:>+6.1f}pp  {estado}")
         print(f"  {'TOTAL':<16} {total_portfolio:>10,.0f}E")
         if needs_rebalance:
-            print(f"\n  Threshold de rebalanceo: >|{THRESHOLD:.0f}pp| de drift")
+            print(f"\n  Threshold de rebalanceo: >|{DRIFT_THRESHOLD:.0f}pp| de drift")
             print("  Research: rebalanceo anual mejora CAGR de 12.5% a 14.7% (datos 2018-2026)")
     else:
         total_invested_all = crypto_total_invested + etf_invested_total
@@ -378,7 +392,7 @@ def cmd_portfolio(args: argparse.Namespace) -> None:
 
     income_trades = [t for t in all_trades if t["side"] in ("dividend", "staking")]
     if income_trades:
-        year_now = _dt.now().year
+        year_now = datetime.now().year
         income_year = [t for t in income_trades if hasattr(t["date"], "year") and t["date"].year == year_now]
         total_income = sum(t["price_eur"] for t in income_year)
         if total_income > 0:
@@ -404,7 +418,7 @@ def cmd_tax_headroom(args: argparse.Namespace) -> None:
         ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP,
     )
 
-    year = args.year if args.year else _dt.now().year
+    year = args.year if args.year else datetime.now().year
     init_db()
 
     with get_session() as session:
@@ -449,7 +463,7 @@ def cmd_tax_headroom(args: argparse.Namespace) -> None:
     total_if_sold = realized + total_unrealized
     irpf_if_sold = calculate_tax_report(
         all_trades + [
-            {"date": _dt.now(), "asset": "BTC", "side": "sell",
+            {"date": datetime.now(), "asset": "BTC", "side": "sell",
              "units": 0, "price_eur": 0, "fee_eur": 0, "asset_class": "crypto", "source": "manual", "notes": None},
         ],
         year

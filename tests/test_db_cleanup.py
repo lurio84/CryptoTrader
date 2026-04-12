@@ -2,7 +2,7 @@
 
 import argparse
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from data.models import AlertLog
@@ -22,7 +22,7 @@ def _make_args(keep_days=90):
 
 
 def _add_alert(session, alert_type, days_ago):
-    ts = (datetime.utcnow() - timedelta(days=days_ago)).replace(tzinfo=None)
+    ts = (datetime.now(timezone.utc) - timedelta(days=days_ago)).replace(tzinfo=None)
     session.add(AlertLog(
         alert_type=alert_type,
         severity="green",

@@ -3,6 +3,11 @@ research/
 
 # Hallazgos de research y backtesting -- leer explicitamente con Read cuando se trabaje en research
 RESEARCH.md
+RESEARCH_ACTIVE.md
+RESEARCH_ARCHIVE.md
+
+# Playbooks extensos -- leer solo cuando se anada alerta/comando/fuente de datos/research
+docs/PLAYBOOKS.md
 
 # Template HTML grande (solo necesario al trabajar en UI)
 dashboard/templates/index.html

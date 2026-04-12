@@ -2,7 +2,7 @@
 
 import argparse
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from data.models import AlertLog, UserTrade
@@ -173,7 +173,7 @@ def test_drift_check_dedup(db_session, capsys):
     """Drift alert not re-sent if already logged within 7d cooldown."""
     _add_buy(db_session, "BTC", 1.0, 72_000.0)
     db_session.add(AlertLog(
-        timestamp=datetime.utcnow() - timedelta(hours=24),
+        timestamp=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24),
         alert_type="rebalance_drift_btc", severity="orange",
         message="rebalance_drift_btc", btc_price=80_000.0, eth_price=2_000.0,
         metric_value=77.0, notified=1,

@@ -229,7 +229,8 @@ def check_and_alert() -> list[dict]:
             AlertLog.alert_type == "heartbeat"
         ).scalar()
         if last_hb is not None:
-            gap_h = (datetime.utcnow() - last_hb).total_seconds() / 3600
+            now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+            gap_h = (now_naive - last_hb).total_seconds() / 3600
             if gap_h > CANARY_THRESHOLD_HOURS:
                 if not _already_alerted(session, "dead_canary", COOLDOWN_DEAD_CANARY):
                     sent = send_discord_message(_format_embed(

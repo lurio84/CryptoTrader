@@ -33,6 +33,38 @@ def detect_asset_class(asset_name: str) -> str:
     return "crypto" if asset_name.upper() in _CRYPTO_ASSETS else "etf"
 
 
+# ---------------------------------------------------------------------------
+# Portfolio drift threshold (Sparplan rebalance trigger)
+# Research 1: drift >10pp vs target merits annual rebalance
+# ---------------------------------------------------------------------------
+
+DRIFT_THRESHOLD = 10.0   # percentage points above/below target
+DRIFT_WATCH_THRESHOLD = 5.0
+
+# ---------------------------------------------------------------------------
+# Spain IRPF 2024 tax brackets for capital gains (ahorro base)
+# Source of truth for portfolio.py, tax-headroom, tax-simulate.
+# ---------------------------------------------------------------------------
+
+IRPF_BRACKETS_2024 = [
+    (6_000,        0.19),
+    (50_000,       0.21),
+    (200_000,      0.23),
+    (300_000,      0.27),
+    (float("inf"), 0.28),
+]
+
+IRPF_BRACKET_LIMITS = [6_000, 50_000, 200_000, 300_000]
+IRPF_BRACKET_LABELS = [
+    "19% (<=6.000 EUR)",
+    "21% (6k-50k)",
+    "23% (50k-200k)",
+    "27% (200k-300k)",
+    "28% (>300k)",
+]
+IRPF_BRACKET_RATES = [0.19, 0.21, 0.23, 0.27, 0.28]
+
+
 _CYCLE_DAYS = 48 * 30.44  # ~4 years in days
 
 def halving_cycle_info() -> dict:
