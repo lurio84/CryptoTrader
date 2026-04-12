@@ -8,6 +8,7 @@ APIs used:
 - CoinMetrics community (MVRV): no API key, public
 - OKX (funding rate): no API key, public, no GitHub geo-block
 - alternative.me (Fear & Greed): no API key, public
+- FRED (S&P 500 daily close): no API key, public
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ import csv
 import io
 import logging
 import time
-from datetime import date, timedelta
 
 import requests
 
@@ -135,8 +135,27 @@ def fetch_funding_rate() -> float | None:
         return None
 
 
+_FRED_SP500_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500"
+
+
+def _fetch_fred_sp500_closes() -> list[float] | None:
+    """Fetch S&P 500 daily closes from FRED (series SP500, no API key)."""
+    resp = _get_with_retry(_FRED_SP500_URL, timeout=15)
+    reader = csv.DictReader(io.StringIO(resp.text))
+    rows = []
+    for r in reader:
+        val = r.get("SP500")
+        if val and val not in ("", "."):
+            rows.append((r.get("observation_date", ""), val))
+    rows.sort(key=lambda x: x[0])
+    try:
+        return [float(v) for _, v in rows]
+    except ValueError:
+        return None
+
+
 def fetch_sp500_change(days: int = 5) -> float | None:
-    """Fetch S&P 500 recent price change via Stooq (no API key, works in GitHub Actions).
+    """Fetch S&P 500 recent price change via FRED (no API key, CI-safe).
 
     Args:
         days: Number of trading days to look back (default 5 = one week).
@@ -145,28 +164,19 @@ def fetch_sp500_change(days: int = 5) -> float | None:
     Validated threshold: -5% over 5d (research6: N=31, consistent edge).
     """
     try:
-        end = date.today()
-        # Request extra calendar days to ensure we get enough trading days
-        start = end - timedelta(days=days * 3 + 10)
-        url = (
-            "https://stooq.com/q/d/l/?s=spy.us&d1={}&d2={}&i=d".format(
-                start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
+        closes = _fetch_fred_sp500_closes()
+        if closes is None or len(closes) < 2:
+            logger.warning(
+                "FRED returned insufficient data for SP500 (%d rows)",
+                0 if closes is None else len(closes),
             )
-        )
-        resp = _get_with_retry(url, timeout=15)
-        reader = csv.DictReader(io.StringIO(resp.text))
-        rows = [r for r in reader if r.get("Close") and r["Close"] != "null"]
-        if len(rows) < 2:
-            logger.warning("Stooq returned insufficient data for SPY (%d rows)", len(rows))
             return None
-        rows.sort(key=lambda r: r.get("Date", ""))
-        closes = [float(r["Close"]) for r in rows]
         recent = closes[-1]
         base_idx = max(0, len(closes) - 1 - days)
         base = closes[base_idx]
         return float((recent - base) / base * 100)
     except Exception as e:
-        logger.error("Failed to fetch S&P 500 change from Stooq: %s", e)
+        logger.error("Failed to fetch S&P 500 change from FRED: %s", e)
         return None
 
 
@@ -248,28 +258,17 @@ def fetch_price_history(asset: str, days: int = 30) -> list[float] | None:
 
 
 def fetch_sp500_history(days: int = 30) -> list[float] | None:
-    """Fetch daily closing prices for S&P 500 (SPY) from Stooq.
+    """Fetch daily closing prices for S&P 500 from FRED (series SP500).
 
     Returns list of daily close prices sorted ascending by date, or None on failure.
     """
     try:
-        end = date.today()
-        start = end - timedelta(days=days * 2 + 10)
-        url = (
-            "https://stooq.com/q/d/l/?s=spy.us&d1={}&d2={}&i=d".format(
-                start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
-            )
-        )
-        resp = _get_with_retry(url, timeout=15)
-        reader = csv.DictReader(io.StringIO(resp.text))
-        rows = [r for r in reader if r.get("Close") and r["Close"] != "null"]
-        if len(rows) < 5:
+        closes = _fetch_fred_sp500_closes()
+        if closes is None or len(closes) < 5:
             return None
-        rows.sort(key=lambda r: r.get("Date", ""))
-        closes = [float(r["Close"]) for r in rows]
         return closes[-days:] if len(closes) >= days else closes
     except Exception as e:
-        logger.error("Failed to fetch S&P 500 history from Stooq: %s", e)
+        logger.error("Failed to fetch S&P 500 history from FRED: %s", e)
         return None
 
 

@@ -22,7 +22,7 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 | funding_negative       | Funding rate < -0.01%                      | Compra 100 EUR BTC   | orange    | 24h   |
 | mvrv_critical          | ETH MVRV < 0.8                            | Compra 100 EUR ETH   | red       | 7d    |
 | mvrv_low               | ETH MVRV 0.8-1.0                          | Aumentar Sparplan ETH| yellow    | 7d    |
-| sp500_crash            | S&P500 cae >7% en 5 dias (Stooq)          | Compra extra BTC+ETF | orange    | 7d    |
+| sp500_crash            | S&P500 cae >7% en 5 dias (FRED)           | Compra extra BTC+ETF | orange    | 7d    |
 | btc_dca_out_Xk         | BTC >= $80k (+$20k steps)                 | Vender 3% BTC en TR  | orange    | 30d   |
 | eth_dca_out_Xk         | ETH >= $3k (+$1k steps)                   | Vender 3% ETH en TR  | orange    | 30d   |
 | dead_canary            | Sin heartbeat en >10h (check caido)       | Verificar GH Actions | red       | 6h    |
@@ -33,7 +33,7 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 ## Decisiones arquitectura activas
 
 - Precios: CoinGecko (USD+EUR en una llamada). Funding: OKX. MVRV: CoinMetrics community.
-- S&P500: Stooq.com (CSV publico, sin API key, funciona en GitHub Actions). NO usar yfinance en alerts/CI.
+- S&P500: FRED serie SP500 (CSV publico, sin API key, CI-safe). NO usar yfinance ni Stooq en alerts/CI.
 - Fear & Greed: NO usar como senal (validado que no funciona)
 - MVRV alto (BTC o ETH): NO es senal de venta (momentum continua en ciclos modernos)
 - BTC MVRV < 1.0: NO es senal de compra (backtest: delta=-17.2pp, OOS WR=0%). Solo informativo en digest.
@@ -120,7 +120,7 @@ python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 - Precios BTC/ETH: CoinGecko API (USD + EUR + 24h_change en una sola llamada)
 - Funding rate: OKX API (Binance y Bybit bloquean IPs de GitHub)
 - ETH MVRV + BTC MVRV: CoinMetrics community API
-- S&P500 5d change: Stooq.com (`fetch_sp500_change()` en `data/market_data.py`). Sin API key, CI-safe.
+- S&P500 diario: FRED serie `SP500` (`fetch_sp500_change()` en `data/market_data.py`). Sin API key, CI-safe. Stooq deprecado 2026-04 (ahora requiere apikey + captcha).
 - Precios ETF (LOCAL): yfinance (SPY, SOXX, O, URA + EURUSD=X). NUNCA en alerts/ ni CI.
 - EUR/USD historico (LOCAL): FRED DEXUSEU (`cmd_fx` en `cli/commands_projection.py`). CSV publico, sin API key.
 
@@ -143,7 +143,7 @@ python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 ```
 alerts/discord_bot.py     -- Logica alertas + Discord webhooks (constantes, dedup, sender)
 alerts/digest.py          -- Digest semanal: send_weekly_digest() (importa de discord_bot, no al reves)
-data/market_data.py       -- Capa centralizada de APIs externas (CoinGecko, OKX, CoinMetrics, Stooq)
+data/market_data.py       -- Capa centralizada de APIs externas (CoinGecko, OKX, CoinMetrics, FRED)
 data/portfolio.py         -- Logica FIFO e IRPF (solo crypto)
 data/etf_prices.py        -- Precios ETF en EUR via yfinance (local-only)
 analysis/monte_carlo.py   -- Proyeccion jubilacion Monte Carlo

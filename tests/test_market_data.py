@@ -29,11 +29,11 @@ def _make_response(json_data=None, text="", raise_for_status=None):
     return resp
 
 
-def _stooq_csv(rows):
-    """Build a Stooq-style CSV string with N data rows."""
-    lines = ["Date,Open,High,Low,Close,Volume"]
+def _fred_sp500_csv(rows):
+    """Build a FRED-style CSV string (observation_date,SP500) with N data rows."""
+    lines = ["observation_date,SP500"]
     for i, close in enumerate(rows):
-        lines.append("2024-01-{:02d},100,105,95,{},1000000".format(i + 1, close))
+        lines.append("2024-01-{:02d},{}".format(i + 1, close))
     return "\n".join(lines)
 
 
@@ -183,7 +183,7 @@ def test_fetch_sp500_change_success():
 
     # 7 rows: base price 500, recent price 490 -> change = (490-500)/500*100 = -2.0%
     closes = [500, 498, 502, 497, 503, 495, 490]
-    mock_resp = _make_response(text=_stooq_csv(closes))
+    mock_resp = _make_response(text=_fred_sp500_csv(closes))
     with patch("data.market_data._get_with_retry", return_value=mock_resp):
         result = fetch_sp500_change(days=5)
 
@@ -194,7 +194,7 @@ def test_fetch_sp500_change_success():
 def test_fetch_sp500_change_insufficient_rows():
     from data.market_data import fetch_sp500_change
 
-    mock_resp = _make_response(text=_stooq_csv([500]))
+    mock_resp = _make_response(text=_fred_sp500_csv([500]))
     with patch("data.market_data._get_with_retry", return_value=mock_resp):
         result = fetch_sp500_change(days=5)
 
@@ -204,10 +204,32 @@ def test_fetch_sp500_change_insufficient_rows():
 def test_fetch_sp500_change_returns_none_on_failure():
     from data.market_data import fetch_sp500_change
 
-    with patch("data.market_data._get_with_retry", side_effect=Exception("Stooq down")):
+    with patch("data.market_data._get_with_retry", side_effect=Exception("FRED down")):
         result = fetch_sp500_change()
 
     assert result is None
+
+
+def test_fetch_sp500_change_skips_missing_values():
+    """FRED marks missing days with '.'; those rows must be skipped."""
+    from data.market_data import fetch_sp500_change
+
+    csv_text = (
+        "observation_date,SP500\n"
+        "2024-01-01,500\n"
+        "2024-01-02,.\n"
+        "2024-01-03,498\n"
+        "2024-01-04,502\n"
+        "2024-01-05,497\n"
+        "2024-01-06,503\n"
+        "2024-01-07,490\n"
+    )
+    mock_resp = _make_response(text=csv_text)
+    with patch("data.market_data._get_with_retry", return_value=mock_resp):
+        result = fetch_sp500_change(days=5)
+
+    assert result is not None
+    assert isinstance(result, float)
 
 
 # ---------------------------------------------------------------------------
