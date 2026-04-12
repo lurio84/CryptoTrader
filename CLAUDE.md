@@ -16,15 +16,18 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 
 ## Alertas activas en produccion
 
-| Alert type (DB)  | Condicion                        | Accion               | Severidad | Dedup |
-|------------------|----------------------------------|----------------------|-----------|-------|
-| btc_crash        | BTC cae >15% en 24h             | Compra 100-150 EUR   | red       | 6h    |
-| funding_negative | Funding rate < -0.01%            | Compra 100 EUR BTC   | orange    | 24h   |
-| mvrv_critical    | ETH MVRV < 0.8                  | Compra 100 EUR ETH   | red       | 7d    |
-| mvrv_low         | ETH MVRV 0.8-1.0                | Aumentar Sparplan ETH| yellow    | 7d    |
-| sp500_crash      | S&P500 cae >7% en 5 dias (Stooq)| Compra extra BTC+ETF | orange    | 7d    |
-| btc_dca_out_Xk   | BTC >= $80k (+$20k steps)       | Vender 3% BTC en TR  | orange    | 30d   |
-| eth_dca_out_Xk   | ETH >= $3k (+$1k steps)         | Vender 3% ETH en TR  | orange    | 30d   |
+| Alert type (DB)        | Condicion                                  | Accion               | Severidad | Dedup |
+|------------------------|--------------------------------------------|----------------------|-----------|-------|
+| btc_crash              | BTC cae >15% en 24h                       | Compra 100-150 EUR   | red       | 6h    |
+| funding_negative       | Funding rate < -0.01%                      | Compra 100 EUR BTC   | orange    | 24h   |
+| mvrv_critical          | ETH MVRV < 0.8                            | Compra 100 EUR ETH   | red       | 7d    |
+| mvrv_low               | ETH MVRV 0.8-1.0                          | Aumentar Sparplan ETH| yellow    | 7d    |
+| sp500_crash            | S&P500 cae >7% en 5 dias (Stooq)          | Compra extra BTC+ETF | orange    | 7d    |
+| btc_dca_out_Xk         | BTC >= $80k (+$20k steps)                 | Vender 3% BTC en TR  | orange    | 30d   |
+| eth_dca_out_Xk         | ETH >= $3k (+$1k steps)                   | Vender 3% ETH en TR  | orange    | 30d   |
+| dead_canary            | Sin heartbeat en >10h (check caido)       | Verificar GH Actions | red       | 6h    |
+| rebalance_drift_ASSET  | Drift >10pp vs target (cmd drift-check)   | Rebalancear cartera  | orange    | 7d    |
+| heartbeat              | Registro tecnico al final de cada check   | (no Discord)         | green     | -     |
 
 ## Decisiones arquitectura activas
 
@@ -34,8 +37,10 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 - MVRV alto (BTC o ETH): NO es senal de venta (momentum continua en ciclos modernos)
 - BTC MVRV < 1.0: NO es senal de compra (backtest: delta=-17.2pp, OOS WR=0%). Solo informativo en digest.
 - DCA-out activo: alertas Discord ya implementadas
-- Rebalanceo: manual 1x/ano cuando BTC o ETH deriva >10pp del target
-- yfinance: SOLO LOCAL (portfolio/rebalance/retirement-plan). NUNCA en alerts/ ni CI.
+- Rebalanceo: manual 1x/ano cuando BTC o ETH deriva >10pp del target. `drift-check` avisa automaticamente.
+- Dead canary: heartbeat logueado en alert_log al final de cada check. Si gap >10h -> alerta red a Discord.
+- yfinance: SOLO LOCAL (portfolio/rebalance/retirement-plan/drift-check). NUNCA en alerts/ ni CI.
+- Digest incluye bloque "Portfolio actual" (crypto siempre, ETFs si yfinance disponible).
 - Ver `RESEARCH.md` para todos los hallazgos del research y senales descartadas
 
 ## Sistema en produccion
@@ -56,6 +61,7 @@ py -3.12 -m venv .venv
 ```bash
 python main.py check [--notify]        # Check senales (BTC/ETH/MVRV/funding/halving)
 python main.py digest [--notify]       # Digest semanal Discord (cooldown 6d)
+python main.py drift-check [--notify]  # Drift cartera vs targets Sparplan (LOCAL, yfinance)
 python main.py dashboard               # Web dashboard localhost:8000
 
 # Rebalanceo anual (BTC/ETH en unidades, ETFs en EUR)
@@ -92,7 +98,7 @@ python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 ## Convenciones
 
 - Conventional commits (hook configurado): feat:, fix:, docs:, etc.
-- Tests: pytest, 103 tests actualmente
+- Tests: pytest, 118 tests actualmente
 - NO usar caracteres unicode especiales en Python (Windows cp1252)
 - SQLAlchemy: convertir a dicts dentro del `with get_session()` antes de usar fuera del bloque.
   Patron de referencia: `_row_to_dict` en `cmd_portfolio` de `main.py`.

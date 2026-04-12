@@ -28,6 +28,69 @@ from cli.constants import halving_cycle_info
 logger = logging.getLogger(__name__)
 
 
+def _get_portfolio_summary(btc_price_eur, eth_price_eur) -> dict:
+    """Return portfolio value/PnL summary. Empty dict if no trades in DB."""
+    from data.models import UserTrade
+    from data.database import get_session
+    from data.portfolio import calculate_portfolio_status
+    from alerts.discord_bot import (
+        BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP,
+        ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP,
+    )
+
+    with get_session() as session:
+        all_trades = session.query(UserTrade).all()
+        trades_by_asset = {}
+        for t in all_trades:
+            d = {
+                "date": t.date, "asset": t.asset, "asset_class": t.asset_class,
+                "side": t.side, "units": t.units, "price_eur": t.price_eur,
+                "fee_eur": t.fee_eur, "source": t.source, "notes": None,
+            }
+            trades_by_asset.setdefault(t.asset, []).append(d)
+
+    result = {}
+
+    if btc_price_eur and trades_by_asset.get("BTC"):
+        s = calculate_portfolio_status("BTC", trades_by_asset["BTC"], btc_price_eur,
+                                       BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP)
+        result["btc_value"] = s["current_value_eur"]
+        result["btc_pnl"] = s["unrealized_gain_eur"] + s["realized_gain_eur"]
+
+    if eth_price_eur and trades_by_asset.get("ETH"):
+        s = calculate_portfolio_status("ETH", trades_by_asset["ETH"], eth_price_eur,
+                                       ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP)
+        result["eth_value"] = s["current_value_eur"]
+        result["eth_pnl"] = s["unrealized_gain_eur"] + s["realized_gain_eur"]
+
+    if not result:
+        return {}
+
+    # ETF prices (lazy yfinance, optional -- falls back gracefully in CI)
+    etf_prices = {}
+    try:
+        from data.etf_prices import fetch_all_etf_prices_eur
+        etf_prices = fetch_all_etf_prices_eur() or {}
+    except Exception:
+        pass
+
+    etf_total = 0.0
+    etf_invested = 0.0
+    for asset in ("SP500", "SEMICONDUCTORS", "REALTY_INCOME", "URANIUM"):
+        price = etf_prices.get(asset)
+        if price and trades_by_asset.get(asset):
+            s = calculate_portfolio_status(asset, trades_by_asset[asset], price,
+                                           1_000_000, 1)
+            etf_total += s["current_value_eur"]
+            etf_invested += s.get("total_invested_eur", 0.0)
+
+    if etf_total > 0:
+        result["etf_value"] = etf_total
+        result["etf_pnl"] = etf_total - etf_invested
+
+    return result
+
+
 def _halving_cycle_text() -> str:
     """Return a short description of the current halving cycle phase.
     Research3: fase mas debil meses 18-24 post-halving (30d=-7.2% vs baseline).
@@ -64,6 +127,8 @@ def send_weekly_digest() -> bool:
     btc_change = prices.get("btc_change_24h")
     eth_price = prices.get("eth_price")
     eth_price_eur = prices.get("eth_price_eur")
+
+    portfolio = _get_portfolio_summary(btc_price_eur, eth_price_eur)
 
     # Alerts from last 7 days
     week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).replace(tzinfo=None)
@@ -139,6 +204,29 @@ def send_weekly_digest() -> bool:
 
     # Block 3: Halving cycle
     fields.append({"name": "Ciclo Halving", "value": _halving_cycle_text(), "inline": False})
+
+    # Block 3b: Portfolio value
+    if portfolio:
+        btc_val = portfolio.get("btc_value", 0.0)
+        eth_val = portfolio.get("eth_value", 0.0)
+        total_crypto = btc_val + eth_val
+        total_crypto_pnl = portfolio.get("btc_pnl", 0.0) + portfolio.get("eth_pnl", 0.0)
+        lines = []
+        if btc_val > 0:
+            lines.append("BTC: {:,.0f} EUR (P&L: {:+,.0f})".format(btc_val, portfolio.get("btc_pnl", 0.0)))
+        if eth_val > 0:
+            lines.append("ETH: {:,.0f} EUR (P&L: {:+,.0f})".format(eth_val, portfolio.get("eth_pnl", 0.0)))
+        if "etf_value" in portfolio:
+            lines.append("ETFs: {:,.0f} EUR (P&L: {:+,.0f})".format(
+                portfolio["etf_value"], portfolio.get("etf_pnl", 0.0)
+            ))
+            grand_total = total_crypto + portfolio["etf_value"]
+            grand_pnl = total_crypto_pnl + portfolio.get("etf_pnl", 0.0)
+            lines.append("**TOTAL: {:,.0f} EUR (P&L: {:+,.0f})**".format(grand_total, grand_pnl))
+        else:
+            lines.append("ETFs: no disponible (requiere yfinance local)")
+            lines.append("Crypto total: {:,.0f} EUR (P&L: {:+,.0f})".format(total_crypto, total_crypto_pnl))
+        fields.append({"name": "Portfolio actual", "value": "\n".join(lines), "inline": False})
 
     # Block 4: Proximas senales -- distancia a cada umbral de alerta
     signals_lines = []
