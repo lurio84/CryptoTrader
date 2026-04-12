@@ -117,6 +117,7 @@ def main() -> None:
     p_ret.add_argument("--target-eur",  type=float, default=1_000_000,  help="Objetivo de cartera en EUR (default 1000000)")
     p_ret.add_argument("--monthly",     type=float, default=140.0,      help="DCA mensual en EUR (default 140)")
     p_ret.add_argument("--simulations", type=int,   default=5000,       help="Numero de simulaciones (default 5000)")
+    p_ret.add_argument("--inflation",   type=float, default=0.0,        help="Tasa anual de inflacion para deflactar a EUR reales (default 0.0, ej: 0.025)")
 
     # info
     subparsers.add_parser("info", help="Show configuration")

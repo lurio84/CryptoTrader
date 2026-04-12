@@ -112,6 +112,21 @@ def cmd_retirement_plan(args: argparse.Namespace) -> None:
         current_portfolio_eur=0.0,
     )
 
+    inflation = getattr(args, "inflation", 0.0)
+    if inflation > 0:
+        for i, year in enumerate(result.years):
+            factor = 1.0 / (1.0 + inflation) ** year
+            result.p10[i] *= factor
+            result.p25[i] *= factor
+            result.p50[i] *= factor
+            result.p75[i] *= factor
+            result.p90[i] *= factor
+        factor_final = 1.0 / (1.0 + inflation) ** result.n_years
+        result.median_at_retirement *= factor_final
+        result.safe_withdrawal_rate_4pct *= factor_final
+
+    eur_label = f"EUR reales ({inflation*100:.1f}% inflacion/ano)" if inflation > 0 else "EUR nominales"
+    print(f"  Valores: {eur_label}")
     print()
     print(f"  {'Ano':>3}  {'Edad':>4}  {'P10 (EUR)':>12}  {'P25 (EUR)':>12}  {'Mediana':>12}  {'P75 (EUR)':>12}  {'P90 (EUR)':>12}")
     print(f"  {'-'*3}  {'-'*4}  {'-'*12}  {'-'*12}  {'-'*12}  {'-'*12}  {'-'*12}")
@@ -139,7 +154,10 @@ def cmd_retirement_plan(args: argparse.Namespace) -> None:
     print(f"  Datos historicos:       {result.data_start_year}-{result.data_end_year}  "
           f"({result.data_months} meses alineados)")
     print("\n  NOTA: Proyeccion basada en retornos historicos. El futuro puede diferir.")
-    print("  Sin impuestos intermedios, sin inflacion ajustada.")
+    if inflation > 0:
+        print(f"  Sin impuestos intermedios. Valores deflactados al {inflation*100:.1f}% anual (poder adquisitivo hoy).")
+    else:
+        print("  Sin impuestos intermedios. Valores nominales (sin ajuste de inflacion).")
     print(f"  Dataset limitado a {result.data_start_year}-{result.data_end_year} "
           f"(inicio datos ETH). Incluye bull run crypto 2020-2021 y 2023-2024.")
     print(f"{'='*60}")

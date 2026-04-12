@@ -26,8 +26,8 @@ ETH_MVRV_LOW           = 1.0     # ETH MVRV below this = buy zone (yellow)
 # BTC MVRV: shown as informational in weekly digest only.
 # DISCARDED as buy signal: research7 found delta=-17.2pp at 30d, OOS WR=0% (btc_mvrv_research.py).
 
-# S&P 500 crash: -5% over 5 trading days validated in research6 (N=31, consistent edge)
-SP500_CRASH_THRESHOLD  = -5      # % drop over 5 trading days
+# S&P 500 crash: -7% over 5 trading days validated in research6 (N=13, p=0.003 at 4w)
+SP500_CRASH_THRESHOLD  = -7      # % drop over 5 trading days
 
 # BTC DCA-out: sell 3% every $20k above $80k
 # Backtest: +62pp to +115pp vs hold after IRPF (research4.py, 2026-04)

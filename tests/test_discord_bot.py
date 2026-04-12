@@ -286,12 +286,12 @@ def test_deduplication_prevents_double_alert(db_session):
 # ---------------------------------------------------------------------------
 
 def test_sp500_crash_triggered(db_session):
-    """S&P500 drop of -6% over 5d triggers sp500_crash (orange)."""
+    """S&P500 drop of -8% over 5d triggers sp500_crash (orange)."""
     with (
         patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
         patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
-        patch("alerts.discord_bot.fetch_sp500_change", return_value=-6.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=-8.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
         patch("alerts.discord_bot.init_db"),
         patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
