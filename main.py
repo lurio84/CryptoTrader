@@ -3,7 +3,7 @@
 import argparse
 import sys
 
-from cli.commands_ops import cmd_check, cmd_digest, cmd_dashboard, cmd_monitor, cmd_drift_check
+from cli.commands_ops import cmd_check, cmd_digest, cmd_dashboard, cmd_monitor, cmd_drift_check, cmd_db_cleanup
 from cli.commands_portfolio import cmd_portfolio
 from cli.commands_analysis import cmd_rebalance, cmd_retirement_plan
 from cli.commands_data import cmd_collect, cmd_update, cmd_backtest, cmd_sentiment, cmd_dca_backtest, cmd_info, STRATEGIES
@@ -127,6 +127,11 @@ def main() -> None:
     p_drift = subparsers.add_parser("drift-check", help="Check portfolio drift vs Sparplan targets")
     p_drift.add_argument("--notify", action="store_true", help="Send Discord alert if drift >10pp")
 
+    # db-cleanup
+    p_db_cleanup = subparsers.add_parser("db-cleanup", help="Purgar registros viejos de alert_log")
+    p_db_cleanup.add_argument("--keep-days", type=int, default=90, dest="keep_days",
+                               help="Dias a conservar (default: 90)")
+
     # info
     subparsers.add_parser("info", help="Show configuration")
 
@@ -146,6 +151,7 @@ def main() -> None:
         "rebalance":      cmd_rebalance,
         "retirement-plan":cmd_retirement_plan,
         "drift-check":    cmd_drift_check,
+        "db-cleanup":     cmd_db_cleanup,
         "info":           cmd_info,
     }
 

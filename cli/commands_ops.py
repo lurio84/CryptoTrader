@@ -288,3 +288,21 @@ def cmd_drift_check(args: argparse.Namespace) -> None:
                 print("  Alert {} ya enviado recientemente (cooldown {}h).".format(
                     alert_type, COOLDOWN_DRIFT
                 ))
+
+
+def cmd_db_cleanup(args: argparse.Namespace) -> None:
+    """Purge old alert_log records to keep DB size under control."""
+    from datetime import datetime, timedelta
+    from sqlalchemy import delete
+    from data.database import get_session
+    from data.models import AlertLog
+
+    keep_days = getattr(args, "keep_days", 90)
+    init_db()
+    cutoff = (datetime.utcnow() - timedelta(days=keep_days)).replace(tzinfo=None)
+    with get_session() as session:
+        result = session.execute(
+            delete(AlertLog).where(AlertLog.timestamp < cutoff)
+        )
+        deleted = result.rowcount
+    print("db-cleanup: {} registros eliminados (anteriores a {})".format(deleted, cutoff.date()))

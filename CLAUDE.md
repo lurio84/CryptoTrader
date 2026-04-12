@@ -41,6 +41,7 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 - Dead canary: heartbeat logueado en alert_log al final de cada check. Si gap >10h -> alerta red a Discord.
 - yfinance: SOLO LOCAL (portfolio/rebalance/retirement-plan/drift-check). NUNCA en alerts/ ni CI.
 - Digest incluye bloque "Portfolio actual" (crypto siempre, ETFs si yfinance disponible).
+- Digest incluye linea "IRPF est.: X EUR (si vendieras hoy)" si hay ganancias no realizadas en BTC/ETH.
 - Ver `RESEARCH.md` para todos los hallazgos del research y senales descartadas
 
 ## Sistema en produccion
@@ -62,6 +63,7 @@ py -3.12 -m venv .venv
 python main.py check [--notify]        # Check senales (BTC/ETH/MVRV/funding/halving)
 python main.py digest [--notify]       # Digest semanal Discord (cooldown 6d)
 python main.py drift-check [--notify]  # Drift cartera vs targets Sparplan (LOCAL, yfinance)
+python main.py db-cleanup [--keep-days 90]  # Purgar alert_log viejos (default: conservar 90d)
 python main.py dashboard               # Web dashboard localhost:8000
 
 # Rebalanceo anual (BTC/ETH en unidades, ETFs en EUR)
@@ -98,7 +100,7 @@ python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 ## Convenciones
 
 - Conventional commits (hook configurado): feat:, fix:, docs:, etc.
-- Tests: pytest, 118 tests actualmente
+- Tests: pytest, 123 tests actualmente
 - NO usar caracteres unicode especiales en Python (Windows cp1252)
 - SQLAlchemy: convertir a dicts dentro del `with get_session()` antes de usar fuera del bloque.
   Patron de referencia: `_row_to_dict` en `cmd_portfolio` de `main.py`.

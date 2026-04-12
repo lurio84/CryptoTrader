@@ -212,6 +212,18 @@ Datos: CoinMetrics BTC CapMVRVCur + PriceUSD, 2010-2026. Split IS: 2011-2022 / O
 - Los niveles de precio del DCA-out ($80k, $100k...) siguen siendo el enfoque correcto.
 - Los analiticos on-chain de valoracion NO sirven como senales de salida en BTC.
 
+## Research 10: ETH/BTC ratio como senal de entrada en ETH (pendiente ejecucion)
+
+Script: `research/eth_btc_ratio_research.py`
+
+Hipotesis: cuando el ratio ETH/BTC cae al percentil 10 de una ventana rolling de 180 dias (ETH infravalorado relativo a BTC), ETH outperforma a BTC en los 7-30 dias siguientes.
+
+Setup: yfinance BTC-USD + ETH-USD daily desde 2017. Metrica = outperformance ETH vs BTC (ETH_fwd - BTC_fwd). Split IS <2023 / OOS >=2023. Cooldown 7d entre senales.
+
+**Estado: script creado, resultados pendientes de ejecutar (requiere internet/yfinance).**
+Ejecutar con: `python research/eth_btc_ratio_research.py`
+Resultados se guardan en `data/research_cache/eth_btc_ratio_results.txt`
+
 ## Investigacion pendiente (baja prioridad)
 
 - **Alerta S&P 500 crash**: IMPLEMENTADA a -7% (Research 6, N=13, p=0.003 a 4w). Threshold cambiado de -5% a -7% por mejor edge estadistico. Cooldown 7d.

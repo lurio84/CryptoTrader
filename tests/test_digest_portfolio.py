@@ -137,3 +137,33 @@ def test_digest_portfolio_crypto_only_when_yfinance_fails(db_session):
         result = send_weekly_digest()
 
     assert result is True
+
+
+def test_digest_shows_irpf_when_gains(db_session):
+    """Digest shows IRPF estimate when crypto portfolio has unrealized gains."""
+    # BTC bought at 60,000 EUR; current price 72,000 EUR -> unrealized gain -> IRPF > 0
+    _add_buy(db_session, "BTC", 0.5, 60_000.0)
+
+    result, payload = _run_digest(db_session, etf_prices={
+        "SP500": None, "SEMICONDUCTORS": None,
+        "REALTY_INCOME": None, "URANIUM": None,
+    })
+    assert result is True
+    field = _get_portfolio_field(payload)
+    assert field is not None
+    assert "IRPF est." in field
+
+
+def test_digest_no_irpf_when_no_gains(db_session):
+    """Digest omits IRPF line when there are no unrealized gains."""
+    # BTC bought at current price -> zero gain -> no IRPF line
+    _add_buy(db_session, "BTC", 0.5, 72_000.0)
+
+    result, payload = _run_digest(db_session, etf_prices={
+        "SP500": None, "SEMICONDUCTORS": None,
+        "REALTY_INCOME": None, "URANIUM": None,
+    })
+    assert result is True
+    field = _get_portfolio_field(payload)
+    assert field is not None
+    assert "IRPF est." not in field

@@ -51,20 +51,26 @@ def _get_portfolio_summary(btc_price_eur, eth_price_eur) -> dict:
 
     result = {}
 
+    irpf_total = 0.0
+
     if btc_price_eur and trades_by_asset.get("BTC"):
         s = calculate_portfolio_status("BTC", trades_by_asset["BTC"], btc_price_eur,
                                        BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP)
         result["btc_value"] = s["current_value_eur"]
         result["btc_pnl"] = s["unrealized_gain_eur"] + s["realized_gain_eur"]
+        irpf_total += s.get("irpf_estimate_eur") or 0.0
 
     if eth_price_eur and trades_by_asset.get("ETH"):
         s = calculate_portfolio_status("ETH", trades_by_asset["ETH"], eth_price_eur,
                                        ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP)
         result["eth_value"] = s["current_value_eur"]
         result["eth_pnl"] = s["unrealized_gain_eur"] + s["realized_gain_eur"]
+        irpf_total += s.get("irpf_estimate_eur") or 0.0
 
     if not result:
         return {}
+
+    result["irpf_total_eur"] = irpf_total
 
     # ETF prices (lazy yfinance, optional -- falls back gracefully in CI)
     etf_prices = {}
@@ -226,6 +232,9 @@ def send_weekly_digest() -> bool:
         else:
             lines.append("ETFs: no disponible (requiere yfinance local)")
             lines.append("Crypto total: {:,.0f} EUR (P&L: {:+,.0f})".format(total_crypto, total_crypto_pnl))
+        irpf = portfolio.get("irpf_total_eur", 0.0)
+        if irpf and irpf > 0:
+            lines.append("IRPF est.: {:,.0f} EUR (si vendieras hoy)".format(irpf))
         fields.append({"name": "Portfolio actual", "value": "\n".join(lines), "inline": False})
 
     # Block 4: Proximas senales -- distancia a cada umbral de alerta
