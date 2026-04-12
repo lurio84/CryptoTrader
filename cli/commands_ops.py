@@ -158,3 +158,133 @@ def cmd_monitor(args: argparse.Namespace) -> None:
     from alerts.monitor import start_monitor
     interval = args.interval or 1
     start_monitor(interval_hours=interval)
+
+
+def cmd_drift_check(args: argparse.Namespace) -> None:
+    """Check portfolio drift vs Sparplan targets. Sends Discord alert if >10pp drift."""
+    from data.market_data import fetch_prices
+    from data.models import UserTrade
+    from data.database import get_session
+    from cli.constants import SPARPLAN_TARGETS
+
+    DRIFT_THRESHOLD = 10.0
+    COOLDOWN_DRIFT = 168  # 7 days
+
+    init_db()
+    prices = fetch_prices()
+    btc_price_eur = prices.get("btc_price_eur") or 0.0
+    eth_price_eur = prices.get("eth_price_eur") or 0.0
+
+    etf_prices = {}
+    try:
+        from data.etf_prices import fetch_all_etf_prices_eur
+        etf_prices = fetch_all_etf_prices_eur() or {}
+    except Exception:
+        pass
+
+    asset_prices_eur = {
+        "BTC": btc_price_eur,
+        "ETH": eth_price_eur,
+        "SP500": etf_prices.get("SP500") or 0.0,
+        "SEMICONDUCTORS": etf_prices.get("SEMICONDUCTORS") or 0.0,
+        "REALTY_INCOME": etf_prices.get("REALTY_INCOME") or 0.0,
+        "URANIUM": etf_prices.get("URANIUM") or 0.0,
+    }
+
+    with get_session() as session:
+        rows = session.query(UserTrade).all()
+        trades_list = [{"asset": t.asset, "side": t.side, "units": t.units} for t in rows]
+
+    units_held = {}
+    for t in trades_list:
+        delta = t["units"] if t["side"] == "buy" else -t["units"]
+        units_held[t["asset"]] = units_held.get(t["asset"], 0.0) + delta
+
+    values = {
+        asset: units_held.get(asset, 0.0) * asset_prices_eur.get(asset, 0.0)
+        for asset in SPARPLAN_TARGETS
+    }
+    total = sum(values.values())
+
+    print("CryptoTrader - Drift Check vs Sparplan Targets")
+    print("=" * 57)
+
+    missing_prices = [a for a in SPARPLAN_TARGETS if asset_prices_eur.get(a, 0.0) == 0.0]
+    if missing_prices:
+        print("  [AVISO] Sin precio para: {} -- instala yfinance o revisa la conexion".format(
+            ", ".join(missing_prices)
+        ))
+
+    if total == 0.0:
+        print("  Portfolio vacio o sin precios disponibles. Agrega trades con 'portfolio add-buy'.")
+        print("=" * 57)
+        return
+
+    print("  Total portfolio: {:,.0f} EUR".format(total))
+    print()
+    print("  {:<16} {:>7} {:>7} {:>8}  {}".format("Asset", "Target", "Actual", "Drift", "Status"))
+    print("  " + "-" * 52)
+
+    alerts_to_send = []
+    for asset, target_pct in SPARPLAN_TARGETS.items():
+        actual_pct = values[asset] / total * 100
+        drift = actual_pct - target_pct
+        price_known = asset_prices_eur.get(asset, 0.0) > 0.0
+        if abs(drift) > DRIFT_THRESHOLD and price_known:
+            status = "[REBALANCEAR]"
+            alerts_to_send.append((asset, drift, values[asset]))
+        elif abs(drift) > 5.0 and price_known:
+            status = "[WATCH]"
+        elif not price_known:
+            status = "[SIN PRECIO]"
+        else:
+            status = "[OK]"
+        print("  {:<16} {:>6.1f}%  {:>6.1f}%  {:>+7.1f}pp  {}".format(
+            asset, target_pct, actual_pct, drift, status
+        ))
+
+    print("=" * 57)
+
+    if not args.notify:
+        if alerts_to_send:
+            print("  [!] {} activo(s) con drift >10pp. Usa --notify para enviar a Discord.".format(
+                len(alerts_to_send)
+            ))
+        return
+
+    if not alerts_to_send:
+        print("  Sin drift significativo. No se enviaron alertas.")
+        return
+
+    from alerts.discord_bot import _already_alerted, _log_alert, send_discord_message, _format_embed
+    btc_price = prices.get("btc_price")
+    eth_price = prices.get("eth_price")
+
+    with get_session() as session:
+        for asset, drift, val in alerts_to_send:
+            alert_type = "rebalance_drift_{}".format(asset.lower())
+            if not _already_alerted(session, alert_type, COOLDOWN_DRIFT):
+                direction = "sobre-ponderado" if drift > 0 else "infra-ponderado"
+                sent = send_discord_message(_format_embed(
+                    "Drift Rebalanceo -- {}".format(asset),
+                    "orange",
+                    {
+                        "btc_price": btc_price,
+                        "btc_price_eur": prices.get("btc_price_eur"),
+                        "eth_price": eth_price,
+                        "eth_price_eur": prices.get("eth_price_eur"),
+                        "recommendation": (
+                            "{} {} en {:+.1f}pp vs target. "
+                            "Valor actual: {:,.0f} EUR. "
+                            "Considera rebalancear en tu proxima revision anual.".format(
+                                asset, direction, drift, val
+                            )
+                        ),
+                    },
+                ))
+                _log_alert(session, alert_type, "orange", btc_price, eth_price, drift, sent)
+                print("  Discord alert enviado: {} ({:+.1f}pp)".format(alert_type, drift))
+            else:
+                print("  Alert {} ya enviado recientemente (cooldown {}h).".format(
+                    alert_type, COOLDOWN_DRIFT
+                ))

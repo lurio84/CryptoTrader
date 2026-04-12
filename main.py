@@ -3,7 +3,7 @@
 import argparse
 import sys
 
-from cli.commands_ops import cmd_check, cmd_digest, cmd_dashboard, cmd_monitor
+from cli.commands_ops import cmd_check, cmd_digest, cmd_dashboard, cmd_monitor, cmd_drift_check
 from cli.commands_portfolio import cmd_portfolio
 from cli.commands_analysis import cmd_rebalance, cmd_retirement_plan
 from cli.commands_data import cmd_collect, cmd_update, cmd_backtest, cmd_sentiment, cmd_dca_backtest, cmd_info, STRATEGIES
@@ -123,6 +123,10 @@ def main() -> None:
     p_ret.add_argument("--simulations", type=int,   default=5000,       help="Numero de simulaciones (default 5000)")
     p_ret.add_argument("--inflation",   type=float, default=0.0,        help="Tasa anual de inflacion para deflactar a EUR reales (default 0.0, ej: 0.025)")
 
+    # drift-check
+    p_drift = subparsers.add_parser("drift-check", help="Check portfolio drift vs Sparplan targets")
+    p_drift.add_argument("--notify", action="store_true", help="Send Discord alert if drift >10pp")
+
     # info
     subparsers.add_parser("info", help="Show configuration")
 
@@ -141,6 +145,7 @@ def main() -> None:
         "monitor":        cmd_monitor,
         "rebalance":      cmd_rebalance,
         "retirement-plan":cmd_retirement_plan,
+        "drift-check":    cmd_drift_check,
         "info":           cmd_info,
     }
 
