@@ -22,7 +22,7 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 | funding_negative | Funding rate < -0.01%            | Compra 100 EUR BTC   | orange    | 24h   |
 | mvrv_critical    | ETH MVRV < 0.8                  | Compra 100 EUR ETH   | red       | 7d    |
 | mvrv_low         | ETH MVRV 0.8-1.0                | Aumentar Sparplan ETH| yellow    | 7d    |
-| sp500_crash      | S&P500 cae >5% en 5 dias (Stooq)| Compra extra BTC+ETF | orange    | 7d    |
+| sp500_crash      | S&P500 cae >7% en 5 dias (Stooq)| Compra extra BTC+ETF | orange    | 7d    |
 | btc_dca_out_Xk   | BTC >= $80k (+$20k steps)       | Vender 3% BTC en TR  | orange    | 30d   |
 | eth_dca_out_Xk   | ETH >= $3k (+$1k steps)         | Vender 3% ETH en TR  | orange    | 30d   |
 
@@ -77,11 +77,6 @@ python research/full_plan_simulation_2020.py
 python research/btc_crash_sensitivity.py   # Research 8: threshold sensitivity -5% a -30%
 
 python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
-
-# Research scripts (excluidos del contexto Claude via .claudeignore, leer explicitamente si es necesario)
-# python research/sp500_crash_research.py
-# python research/full_plan_simulation_2020.py
-# python research/btc_crash_sensitivity.py
 ```
 
 ## Fuentes de datos (todas publicas, sin API key)

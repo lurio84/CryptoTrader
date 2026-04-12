@@ -1,6 +1,9 @@
 # Scripts de research standalone (no son codigo de produccion)
 research/
 
+# Hallazgos de research y backtesting -- leer explicitamente con Read cuando se trabaje en research
+RESEARCH.md
+
 # Template HTML grande (solo necesario al trabajar en UI)
 dashboard/templates/index.html
 
@@ -12,3 +15,13 @@ data/cryptotrader.db
 # Para trabajar en backtesting: lee estos directorios explicitamente con Read/Glob
 backtesting/
 strategies/
+
+# Tests -- leer explicitamente con Read/Glob cuando se debuggee o escriban tests
+tests/
+
+# Monte Carlo (solo para retirement-plan) -- leer explicitamente si se trabaja en ello
+analysis/
+
+# Coleccion de datos OHLCV (solo para `python main.py collect`) -- no CI, no alertas
+data/collector.py
+data/sentiment.py

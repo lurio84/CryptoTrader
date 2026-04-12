@@ -116,21 +116,6 @@ Script: `research/sp500_crash_research.py`
 - **NO implementado todavia como alerta Discord** (N=13, confianza baja, similar a crash BTC)
 - Bug corregido: alineacion fechas S&P (cierre viernes) vs BTC (cierre domingo) -- normalizar a lunes ISO
 
-## Auditoria de codigo (2026-04)
-
-| Bug | Archivo | Impacto |
-|-----|---------|---------|
-| Sharpe ratio usaba sqrt(8760) siempre (hourly) | backtesting/metrics.py + engine.py | Ninguno (estrategias tecnicas descartadas) |
-| Cooldown crash-buy comparaba indice entero con horas | backtesting/crash_dca_engine.py | Ninguno (crypto data continua) |
-| Valor final sin exit slippage | backtesting/dca_engine.py | Ninguno (simetrico) |
-| Ganancias USD aplicadas a tramos IRPF en EUR sin conversion | research/exit_signals_research4.py | SI: taxes 2.350->2.125 EUR (hold), 3.266->2.959 EUR (DCA-out) |
-| BTC comprado y vendido el mismo dia en DCA-out | research3.py + research4.py | <7 EUR, negligible |
-| Liquidacion final sin comision 1 EUR TR | research/exit_signals_research4.py | 1 EUR, negligible |
-| DetachedInstanceError en send_weekly_digest() | alerts/discord_bot.py | Bug produccion, CI fallaba |
-| Dead code _format_status_embed() + claves *_raw en dashboard | alerts/discord_bot.py + dashboard/app.py | Ninguno |
-
-Todos los 60 tests pasan. Conclusiones estrategicas no cambian.
-
 ## Research 7: BTC MVRV como senal de compra (2026-04)
 
 Script: `research/btc_mvrv_research.py`
