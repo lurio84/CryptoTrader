@@ -149,7 +149,7 @@ def cmd_fx(args: argparse.Namespace) -> None:
     print(f"  ATL historico:         {atl:.4f}  ({atl_date})  [{pct_from_atl:+.1f}% vs spot]")
     print()
     print(f"  Interpretacion: 1 EUR = {spot:.4f} USD | 1 USD = {1 / spot:.4f} EUR")
-    print(f"  Promedio historico research (2018-2026): 1.10")
+    print("  Promedio historico research (2018-2026): 1.10")
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +265,6 @@ def cmd_compare_periods(args: argparse.Namespace) -> None:
         delta_ret = s2["total_return_pct"] - s1["total_return_pct"]
         delta_vol = s2["annual_vol_pct"] - s1["annual_vol_pct"]
         print()
-        print(f"  Delta P2 vs P1:")
+        print("  Delta P2 vs P1:")
         print(f"    Retorno:         {delta_ret:+.1f}pp")
         print(f"    Volatilidad:     {delta_vol:+.1f}pp")

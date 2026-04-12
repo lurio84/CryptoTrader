@@ -28,7 +28,6 @@ def cmd_tax_simulate(args: argparse.Namespace) -> None:
     from data.models import UserTrade
     from data.portfolio import (
         calculate_tax_report,
-        compute_spanish_tax,
         compute_tax_headroom,
     )
 
@@ -465,6 +464,6 @@ def cmd_explain_alert(args: argparse.Namespace) -> None:
 
     if nearby:
         print()
-        print(f"  Alertas cercanas (+-24h, max 10):")
+        print("  Alertas cercanas (+-24h, max 10):")
         for n in nearby:
             print(f"    {n['timestamp']}  {n['alert_type']:<22} {n['severity']:<7}")

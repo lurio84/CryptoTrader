@@ -498,7 +498,7 @@ def api_tax_simulate(body: TaxSimulateRequest):
         with get_session() as session:
             rows = session.query(UserTrade).all()
             real_trades = [t.to_dict() for t in rows]
-    except Exception as exc:
+    except Exception:
         logger.exception("tax_simulate error")
         return {"error": "Internal server error"}
 
@@ -589,7 +589,7 @@ def api_retirement_mc(
             monthly_contribution_eur=monthly,
             n_simulations=n_sim,
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("retirement_mc error")
         return {"error": "Internal server error"}
 
