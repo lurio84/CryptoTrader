@@ -20,6 +20,8 @@ class BollingerBreakout(BaseStrategy):
         bb_std: float = 2.0,
         volume_decline_periods: int = 3,
     ):
+        if bb_std <= 0:
+            raise ValueError(f"bb_std must be positive, got {bb_std}")
         self.bb_period = bb_period
         self.bb_std = bb_std
         self.volume_decline_periods = volume_decline_periods
@@ -50,6 +52,7 @@ class BollingerBreakout(BaseStrategy):
         sell_mask = (df["close"] >= df["bb_upper"]) & volume_declining
         df.loc[sell_mask, "signal"] = Signal.SELL
 
+        df.drop(columns=["bb_width", "volume_avg_short", "volume_avg_long"], inplace=True)
         return df
 
     def get_params(self) -> dict:

@@ -147,3 +147,16 @@ class TestDCABacktestEngine:
         assert "FIXED DCA" in summary
         assert "BUY & HOLD" in summary
         assert "BTC/USDT" in summary
+
+    def test_f18_run_twice_gives_same_result(self):
+        """F18: calling run() twice on the same engine instance must not accumulate state."""
+        candles = _make_candles(100)
+        sentiment = _make_sentiment(100)
+        engine = DCABacktestEngine()
+
+        result1 = engine.run(candles, sentiment, "BTC/USDT")
+        result2 = engine.run(candles, sentiment, "BTC/USDT")
+
+        assert result1.smart_total_invested == pytest.approx(result2.smart_total_invested)
+        assert result1.smart_total_buys == result2.smart_total_buys
+        assert result1.fixed_total_invested == pytest.approx(result2.fixed_total_invested)

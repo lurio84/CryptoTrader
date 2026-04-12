@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import pytest
 
 from strategies.base import Signal
 from strategies.sma_crossover import SMACrossover
@@ -112,3 +113,42 @@ class TestBollingerBreakout:
         params = strategy.get_params()
         assert params["bb_period"] == 25
         assert params["bb_std"] == 2.5
+
+    def test_no_temp_columns_in_output(self):
+        """F11: temp computation cols must not leak into the returned DataFrame."""
+        strategy = BollingerBreakout()
+        df = _make_ranging_df(200)
+        result = strategy.generate_signals(df)
+
+        assert "bb_width" not in result.columns
+        assert "volume_avg_short" not in result.columns
+        assert "volume_avg_long" not in result.columns
+
+
+class TestParameterValidation:
+    def test_sma_fast_ge_slow_raises(self):
+        """F12: SMACrossover must reject fast_period >= slow_period."""
+        with pytest.raises(ValueError):
+            SMACrossover(fast_period=50, slow_period=20)
+
+    def test_sma_equal_periods_raises(self):
+        with pytest.raises(ValueError):
+            SMACrossover(fast_period=20, slow_period=20)
+
+    def test_rsi_oversold_ge_overbought_raises(self):
+        """F12: RSIMeanReversion must reject oversold >= overbought."""
+        with pytest.raises(ValueError):
+            RSIMeanReversion(oversold=70.0, overbought=30.0)
+
+    def test_rsi_out_of_range_raises(self):
+        with pytest.raises(ValueError):
+            RSIMeanReversion(oversold=-5.0, overbought=70.0)
+
+    def test_bollinger_zero_std_raises(self):
+        """F12: BollingerBreakout must reject bb_std <= 0."""
+        with pytest.raises(ValueError):
+            BollingerBreakout(bb_std=0.0)
+
+    def test_bollinger_negative_std_raises(self):
+        with pytest.raises(ValueError):
+            BollingerBreakout(bb_std=-1.0)

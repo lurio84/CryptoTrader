@@ -22,6 +22,10 @@ class RSIMeanReversion(BaseStrategy):
         overbought: float = 70.0,
         volume_factor: float = 1.0,
     ):
+        if not (0 <= oversold <= 100) or not (0 <= overbought <= 100):
+            raise ValueError("oversold and overbought must be in [0, 100]")
+        if oversold >= overbought:
+            raise ValueError(f"oversold ({oversold}) must be less than overbought ({overbought})")
         self.rsi_period = rsi_period
         self.oversold = oversold
         self.overbought = overbought

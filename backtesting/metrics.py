@@ -67,9 +67,12 @@ def calculate_metrics(
     else:
         sharpe_ratio = 0.0
 
-    # Max drawdown
+    # Max drawdown — guard against peak==0 to avoid inf/-inf
     peak = equity_curve.cummax()
-    drawdown = (equity_curve - peak) / peak
+    drawdown = pd.Series(
+        np.where(peak.values != 0, (equity_curve.values - peak.values) / peak.values, 0.0),
+        index=equity_curve.index,
+    )
     max_drawdown_pct = abs(drawdown.min()) * 100
 
     # Trade statistics

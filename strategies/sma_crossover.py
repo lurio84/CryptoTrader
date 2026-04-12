@@ -14,6 +14,8 @@ class SMACrossover(BaseStrategy):
     name = "sma_crossover"
 
     def __init__(self, fast_period: int = 20, slow_period: int = 50):
+        if fast_period >= slow_period:
+            raise ValueError(f"fast_period ({fast_period}) must be less than slow_period ({slow_period})")
         self.fast_period = fast_period
         self.slow_period = slow_period
 

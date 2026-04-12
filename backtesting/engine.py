@@ -35,6 +35,22 @@ class BacktestEngine:
         df = strategy.generate_signals(df)
         df = df.dropna(subset=["signal"]).reset_index(drop=True)
 
+        # F8: no rows with a valid signal → return clean zero result instead of crashing
+        if df.empty:
+            zero_metrics = BacktestMetrics(
+                total_return_pct=0.0, buy_and_hold_return_pct=0.0, excess_return_pct=0.0,
+                sharpe_ratio=0.0, max_drawdown_pct=0.0, win_rate=0.0, profit_factor=0.0,
+                total_trades=0, winning_trades=0, losing_trades=0,
+                avg_win_pct=0.0, avg_loss_pct=0.0, total_fees=0.0,
+                start_date="", end_date="",
+            )
+            return BacktestResult(
+                metrics=zero_metrics, trades=[],
+                equity_curve=pd.Series([], dtype=float),
+                signals_df=df, strategy_name=strategy.name,
+                strategy_params=strategy.get_params(),
+            )
+
         cash = self.initial_capital
         position = 0.0  # amount of asset held
         entry_price = 0.0
@@ -42,6 +58,10 @@ class BacktestEngine:
         equity_values: list[float] = []
 
         for i, row in df.iterrows():
+            # F10: OHLCV columns may still have NaN even after signal dropna; skip trade logic
+            if pd.isna(row["close"]):
+                equity_values.append(cash)
+                continue
             price = row["close"]
             signal = row["signal"]
             timestamp = row["timestamp"]

@@ -4,6 +4,7 @@ import pytest
 
 from backtesting.engine import BacktestEngine, BacktestResult
 from backtesting.metrics import calculate_metrics
+from strategies.base import BaseStrategy, Signal
 from strategies.sma_crossover import SMACrossover
 from strategies.rsi_mean_reversion import RSIMeanReversion
 from strategies.bollinger_breakout import BollingerBreakout
@@ -26,6 +27,34 @@ def _make_df(n: int = 500) -> pd.DataFrame:
         "close": prices,
         "volume": np.random.uniform(50, 1000, n),
     })
+
+
+class _AllNaNSignalStrategy(BaseStrategy):
+    """Test-only strategy that sets every signal to NaN (triggers F8 path)."""
+    name = "all_nan"
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        df["signal"] = float("nan")
+        return df
+
+    def get_params(self) -> dict:
+        return {}
+
+
+class _NaNCloseStrategy(BaseStrategy):
+    """Test-only strategy that injects NaN into one close row (triggers F10 path)."""
+    name = "nan_close"
+
+    def generate_signals(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        df["signal"] = Signal.HOLD
+        if len(df) > 1:
+            df.loc[df.index[1], "close"] = float("nan")
+        return df
+
+    def get_params(self) -> dict:
+        return {}
 
 
 class TestBacktestEngine:
@@ -141,3 +170,37 @@ class TestMetrics:
         summary = metrics.summary()
         assert "BACKTEST RESULTS" in summary
         assert "Total Return" in summary
+
+    def test_zero_equity_curve_no_division_error(self):
+        """F9: all-zero equity curve must not produce inf/-inf in drawdown."""
+        equity = pd.Series([0.0, 0.0, 0.0])
+        metrics = calculate_metrics(
+            trades=[], equity_curve=equity, initial_capital=0,
+            first_price=1, last_price=1,
+            start_date="2024-01-01", end_date="2024-01-03",
+        )
+        import math
+        assert not math.isinf(metrics.max_drawdown_pct)
+        assert not math.isnan(metrics.max_drawdown_pct)
+        assert metrics.max_drawdown_pct == 0.0
+
+
+class TestEdgeCases:
+    def test_f8_all_nan_signals_returns_zero_trades(self):
+        """F8: strategy that emits all NaN signals must not raise; returns 0 trades."""
+        engine = BacktestEngine(initial_capital=500.0)
+        df = _make_df(50)
+        result = engine.run(df, _AllNaNSignalStrategy())
+
+        assert isinstance(result, BacktestResult)
+        assert result.metrics.total_trades == 0
+        assert result.trades == []
+
+    def test_f10_nan_close_row_does_not_raise(self):
+        """F10: a NaN close in an OHLCV row must not propagate into trade logic."""
+        engine = BacktestEngine(initial_capital=500.0)
+        df = _make_df(50)
+        result = engine.run(df, _NaNCloseStrategy())
+
+        assert isinstance(result, BacktestResult)
+        assert len(result.equity_curve) > 0
