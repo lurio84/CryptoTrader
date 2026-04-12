@@ -192,14 +192,26 @@ def api_snapshots():
 
 
 @app.get("/api/alerts")
-def api_alerts(days: int = 30, include_heartbeats: int = 0):
-    """Alert log history. Excludes heartbeats by default (?include_heartbeats=1 to include)."""
+def api_alerts(
+    days: int = 30,
+    include_heartbeats: int = 0,
+    alert_type: str | None = None,
+    severity: str | None = None,
+):
+    """Alert log history. Excludes heartbeats by default (?include_heartbeats=1 to include).
+
+    Optional filters: alert_type (exact match), severity (red/orange/yellow/green).
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     try:
         with get_session() as session:
             q = select(AlertLog).where(AlertLog.timestamp >= cutoff)
             if not include_heartbeats:
                 q = q.where(AlertLog.alert_type != "heartbeat")
+            if alert_type:
+                q = q.where(AlertLog.alert_type == alert_type)
+            if severity:
+                q = q.where(AlertLog.severity == severity)
             rows = session.execute(
                 q.order_by(AlertLog.timestamp.desc())
             ).scalars().all()
@@ -207,3 +219,165 @@ def api_alerts(days: int = 30, include_heartbeats: int = 0):
     except Exception as exc:
         logger.error("Failed to fetch alert log: %s", exc)
         return []
+
+
+@app.get("/api/drift")
+def api_drift():
+    """Current allocation vs Sparplan targets for each asset.
+
+    Returns list of {asset, target_pct, actual_pct, drift_pp, value_eur, status}.
+    Used by the dashboard to render live allocation bars.
+    """
+    from cli.constants import SPARPLAN_TARGETS, DRIFT_THRESHOLD, DRIFT_WATCH_THRESHOLD
+    from data.market_data import fetch_portfolio_prices_eur
+    from data.models import UserTrade
+
+    try:
+        prices = fetch_portfolio_prices_eur(include_etfs=True)
+    except Exception as exc:
+        logger.warning("drift: price fetch failed: %s", exc)
+        prices = {"btc_eur": None, "eth_eur": None, "etf_prices": {}}
+
+    with get_session() as session:
+        rows = session.query(UserTrade).all()
+        trades = [t.to_dict() for t in rows]
+
+    if not trades:
+        return []
+
+    units_held: dict[str, float] = {}
+    for t in trades:
+        if t["side"] == "buy":
+            units_held[t["asset"]] = units_held.get(t["asset"], 0.0) + t["units"]
+        elif t["side"] == "sell":
+            units_held[t["asset"]] = units_held.get(t["asset"], 0.0) - t["units"]
+
+    asset_prices_eur = {
+        "BTC": prices["btc_eur"] or 0.0,
+        "ETH": prices["eth_eur"] or 0.0,
+        "SP500": prices["etf_prices"].get("SP500") or 0.0,
+        "SEMICONDUCTORS": prices["etf_prices"].get("SEMICONDUCTORS") or 0.0,
+        "REALTY_INCOME": prices["etf_prices"].get("REALTY_INCOME") or 0.0,
+        "URANIUM": prices["etf_prices"].get("URANIUM") or 0.0,
+    }
+    values = {
+        a: units_held.get(a, 0.0) * asset_prices_eur.get(a, 0.0)
+        for a in SPARPLAN_TARGETS
+    }
+    total = sum(values.values())
+    if total <= 0:
+        return []
+
+    result = []
+    for asset, target_pct in SPARPLAN_TARGETS.items():
+        val = values[asset]
+        actual_pct = val / total * 100
+        drift = actual_pct - target_pct
+        if abs(drift) > DRIFT_THRESHOLD:
+            status = "rebalance"
+        elif abs(drift) > DRIFT_WATCH_THRESHOLD:
+            status = "watch"
+        else:
+            status = "ok"
+        result.append({
+            "asset": asset,
+            "target_pct": round(target_pct, 2),
+            "actual_pct": round(actual_pct, 2),
+            "drift_pp": round(drift, 2),
+            "value_eur": round(val, 2),
+            "status": status,
+        })
+    return result
+
+
+@app.get("/api/portfolio_pnl")
+def api_portfolio_pnl():
+    """Per-asset unrealized + realized P&L summary."""
+    from data.market_data import fetch_portfolio_prices_eur
+    from data.models import UserTrade
+    from data.portfolio import calculate_portfolio_status
+    from alerts.discord_bot import (
+        BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP,
+        ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP,
+    )
+
+    try:
+        prices = fetch_portfolio_prices_eur(include_etfs=True)
+    except Exception as exc:
+        logger.warning("portfolio_pnl: price fetch failed: %s", exc)
+        prices = {"btc_eur": None, "eth_eur": None, "etf_prices": {}}
+
+    with get_session() as session:
+        rows = session.query(UserTrade).all()
+        trades = [t.to_dict() for t in rows]
+
+    if not trades:
+        return {"assets": [], "totals": {"invested": 0, "value": 0, "pnl": 0}}
+
+    by_asset: dict[str, list[dict]] = {}
+    for t in trades:
+        by_asset.setdefault(t["asset"], []).append(t)
+
+    results = []
+    total_invested = 0.0
+    total_value = 0.0
+    total_pnl = 0.0
+
+    crypto_map = {
+        "BTC": (prices["btc_eur"], BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP),
+        "ETH": (prices["eth_eur"], ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP),
+    }
+    for asset, asset_trades in by_asset.items():
+        if asset in crypto_map:
+            price_eur, dca_base, dca_step = crypto_map[asset]
+            if not price_eur:
+                continue
+            s = calculate_portfolio_status(asset, asset_trades, price_eur, dca_base, dca_step)
+            invested = s["total_invested_eur"]
+            value = s["current_value_eur"]
+            unrealized = s["unrealized_gain_eur"]
+            realized = s["realized_gain_eur"]
+            pnl = unrealized + realized
+        else:
+            # ETF: simple sum
+            price_eur = prices["etf_prices"].get(asset)
+            if not price_eur:
+                continue
+            units = (
+                sum(t["units"] for t in asset_trades if t["side"] == "buy")
+                - sum(t["units"] for t in asset_trades if t["side"] == "sell")
+            )
+            invested = sum(
+                t["units"] * t["price_eur"] + t["fee_eur"]
+                for t in asset_trades if t["side"] == "buy"
+            )
+            value = units * price_eur
+            unrealized = value - invested
+            realized = 0.0
+            pnl = unrealized
+
+        total_invested += invested
+        total_value += value
+        total_pnl += pnl
+
+        results.append({
+            "asset": asset,
+            "units": round(sum(t["units"] for t in asset_trades if t["side"] == "buy")
+                           - sum(t["units"] for t in asset_trades if t["side"] == "sell"), 6),
+            "price_eur": round(price_eur or 0.0, 2),
+            "invested_eur": round(invested, 2),
+            "value_eur": round(value, 2),
+            "unrealized_eur": round(unrealized, 2),
+            "realized_eur": round(realized, 2),
+            "pnl_eur": round(pnl, 2),
+        })
+
+    results.sort(key=lambda r: r["value_eur"], reverse=True)
+    return {
+        "assets": results,
+        "totals": {
+            "invested": round(total_invested, 2),
+            "value": round(total_value, 2),
+            "pnl": round(total_pnl, 2),
+        },
+    }

@@ -7,6 +7,7 @@ from cli.commands_ops import cmd_check, cmd_digest, cmd_dashboard, cmd_monitor, 
 from cli.commands_portfolio import cmd_portfolio, cmd_tax_headroom
 from cli.commands_analysis import cmd_rebalance, cmd_retirement_plan
 from cli.commands_data import cmd_collect, cmd_update, cmd_backtest, cmd_sentiment, cmd_dca_backtest, cmd_info, STRATEGIES
+from cli.commands_decision import cmd_tax_simulate, cmd_what_if, cmd_health_check, cmd_explain_alert
 
 
 def main() -> None:
@@ -151,6 +152,29 @@ def main() -> None:
     p_db_cleanup.add_argument("--keep-days", type=int, default=90, dest="keep_days",
                                help="Dias a conservar (default: 90)")
 
+    # tax-simulate
+    p_tax_sim = subparsers.add_parser("tax-simulate", help="Simular una venta hipotetica y calcular IRPF")
+    p_tax_sim.add_argument("--asset", required=True, help="Activo a vender (ej: BTC, ETH, SP500)")
+    p_tax_sim.add_argument("--units", type=float, required=True, help="Unidades a vender")
+    p_tax_sim.add_argument("--price-eur", type=float, required=True, dest="price_eur",
+                           help="Precio EUR por unidad")
+    p_tax_sim.add_argument("--year", type=int, default=None, help="Anno fiscal (default: anno en curso)")
+
+    # what-if
+    p_whatif = subparsers.add_parser("what-if", help="Proyectar drift + IRPF si un activo llega a un precio")
+    p_whatif.add_argument("--asset", required=True, choices=["BTC", "ETH", "btc", "eth"],
+                          help="Activo objetivo (BTC o ETH)")
+    p_whatif.add_argument("--price", type=float, required=True,
+                          help="Precio objetivo en USD")
+
+    # health-check
+    subparsers.add_parser("health-check", help="Validar DB + APIs externas + heartbeat")
+
+    # explain-alert
+    p_explain = subparsers.add_parser("explain-alert", help="Detalles de una alerta historica")
+    p_explain.add_argument("--id", type=int, default=None, help="ID de la alerta en alert_log")
+    p_explain.add_argument("--type", default=None, help="Alert type (muestra la mas reciente)")
+
     # info
     subparsers.add_parser("info", help="Show configuration")
 
@@ -171,6 +195,10 @@ def main() -> None:
         "retirement-plan":cmd_retirement_plan,
         "drift-check":    cmd_drift_check,
         "tax-headroom":   cmd_tax_headroom,
+        "tax-simulate":   cmd_tax_simulate,
+        "what-if":        cmd_what_if,
+        "health-check":   cmd_health_check,
+        "explain-alert":  cmd_explain_alert,
         "db-cleanup":     cmd_db_cleanup,
         "info":           cmd_info,
     }

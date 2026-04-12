@@ -260,3 +260,106 @@ def test_api_snapshots_sorted_by_date(client_with_session):
     data = c.get("/api/snapshots").json()
     dates = [d["date"] for d in data]
     assert dates == sorted(dates)
+
+
+# ---------------------------------------------------------------------------
+# /api/alerts filters
+# ---------------------------------------------------------------------------
+
+def test_api_alerts_filter_by_type(client_with_session):
+    c, session = client_with_session
+    _insert_alert(session, "btc_crash", "red")
+    _insert_alert(session, "mvrv_critical", "red")
+
+    data = c.get("/api/alerts?alert_type=btc_crash").json()
+    assert len(data) == 1
+    assert data[0]["alert_type"] == "btc_crash"
+
+
+def test_api_alerts_filter_by_severity(client_with_session):
+    c, session = client_with_session
+    _insert_alert(session, "btc_crash", "red")
+    _insert_alert(session, "funding_negative", "orange")
+
+    data = c.get("/api/alerts?severity=red").json()
+    assert all(r["severity"] == "red" for r in data)
+    assert len(data) == 1
+
+
+# ---------------------------------------------------------------------------
+# /api/drift
+# ---------------------------------------------------------------------------
+
+def _insert_trade(session, asset, units, price_eur, side="buy", asset_class="crypto"):
+    from data.models import UserTrade
+    session.add(UserTrade(
+        date=datetime(2024, 1, 1),
+        asset=asset, asset_class=asset_class, side=side,
+        units=units, price_eur=price_eur, fee_eur=0.0, source="sparplan",
+    ))
+    session.commit()
+
+
+def _fake_portfolio_prices(btc_eur=60_000.0, eth_eur=2_500.0, etf_prices=None):
+    return {
+        "btc_eur": btc_eur,
+        "eth_eur": eth_eur,
+        "etf_prices": etf_prices or {
+            "SP500": 500.0,
+            "SEMICONDUCTORS": 200.0,
+            "REALTY_INCOME": 50.0,
+            "URANIUM": 30.0,
+        },
+    }
+
+
+def test_api_drift_empty_without_trades(client_with_session):
+    c, _session = client_with_session
+    with patch("data.market_data.fetch_portfolio_prices_eur", return_value=_fake_portfolio_prices()):
+        data = c.get("/api/drift").json()
+    assert data == []
+
+
+def test_api_drift_returns_all_targets(client_with_session):
+    c, session = client_with_session
+    _insert_trade(session, "BTC", 0.01, 50_000.0, asset_class="crypto")
+    _insert_trade(session, "SP500", 2.0, 450.0, asset_class="etf")
+
+    with patch("data.market_data.fetch_portfolio_prices_eur", return_value=_fake_portfolio_prices()):
+        data = c.get("/api/drift").json()
+
+    assert len(data) == 6  # 6 Sparplan assets
+    assets = {d["asset"] for d in data}
+    assert assets == {"BTC", "ETH", "SP500", "SEMICONDUCTORS", "REALTY_INCOME", "URANIUM"}
+    for row in data:
+        assert "target_pct" in row
+        assert "actual_pct" in row
+        assert "drift_pp" in row
+        assert "status" in row
+        assert row["status"] in ("ok", "watch", "rebalance")
+
+
+# ---------------------------------------------------------------------------
+# /api/portfolio_pnl
+# ---------------------------------------------------------------------------
+
+def test_api_portfolio_pnl_empty(client_with_session):
+    c, _session = client_with_session
+    with patch("data.market_data.fetch_portfolio_prices_eur", return_value=_fake_portfolio_prices()):
+        data = c.get("/api/portfolio_pnl").json()
+    assert data == {"assets": [], "totals": {"invested": 0, "value": 0, "pnl": 0}}
+
+
+def test_api_portfolio_pnl_crypto_and_etf(client_with_session):
+    c, session = client_with_session
+    _insert_trade(session, "BTC", 0.1, 30_000.0, asset_class="crypto")
+    _insert_trade(session, "SP500", 2.0, 450.0, asset_class="etf")
+
+    with patch("data.market_data.fetch_portfolio_prices_eur", return_value=_fake_portfolio_prices()):
+        data = c.get("/api/portfolio_pnl").json()
+
+    assets = {a["asset"]: a for a in data["assets"]}
+    assert "BTC" in assets
+    assert "SP500" in assets
+    assert data["totals"]["invested"] > 0
+    assert data["totals"]["value"] > 0

@@ -48,7 +48,7 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 - Digest incluye bloque "Asignacion vs targets": % actual de cada activo vs SPARPLAN_TARGETS con drift.
 - Digest incluye bloque "Correlacion 30d": BTC/SP500, ETH/SP500, BTC/ETH (Pearson, retornos diarios).
 - Digest guarda snapshot semanal en `user_portfolio_snapshot` (idempotente por semana ISO).
-- Dashboard: endpoint `/api/alerts?days=30` (excluye heartbeats por defecto), `/api/snapshots`.
+- Dashboard: endpoint `/api/alerts?days=30[&alert_type=X&severity=Y]` (excluye heartbeats por defecto), `/api/snapshots`, `/api/drift` (allocation vs targets en vivo), `/api/portfolio_pnl` (P&L por activo unrealized+realized).
 - `tax-headroom --notify --threshold N`: envia Discord si margen IRPF < N EUR (LOCAL ONLY, dedup 7d).
 - `drift-check` muestra "Para rebalancear: Compra/Vende X EUR de ASSET" para activos con drift >10pp.
 - `user_trade.side`: valores validos: "buy", "sell", "dividend", "staking". Sin CHECK constraint en DB.
@@ -91,6 +91,10 @@ python main.py portfolio tax-report [--year 2024] [--csv]  # Informe IRPF anual 
 python main.py portfolio add-dividend --asset REALTY_INCOME --amount-eur 12.50 [--date 2024-03-15]
 python main.py portfolio add-staking  --asset ETH --units 0.005 --price-eur 1800 [--date 2024-03-15]
 python main.py tax-headroom [--year 2024]                  # Margen IRPF: realizadas vs tramo actual
+python main.py tax-simulate --asset BTC --units 0.01 --price-eur 90000  # Simula venta hipotetica -> delta IRPF + net cash
+python main.py what-if --asset BTC --price 150000          # Proyecta drift y DCA-out si BTC llega a $150k
+python main.py health-check                                # Valida DB + APIs externas + heartbeat + webhook
+python main.py explain-alert --id 42                       # Detalles de alerta historica (por id o --type)
 python main.py tax-headroom --notify [--threshold 2000]    # Envia Discord si margen < threshold (LOCAL)
 
 # Monte Carlo jubilacion
@@ -116,7 +120,7 @@ python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 ## Convenciones
 
 - Conventional commits (hook configurado): feat:, fix:, docs:, etc.
-- Tests: pytest, 123 tests actualmente
+- Tests: pytest, 173 tests actualmente
 - NO usar caracteres unicode especiales en Python (Windows cp1252)
 - SQLAlchemy: convertir a dicts dentro del `with get_session()` antes de usar fuera del bloque.
   Patron de referencia: `_row_to_dict` en `cmd_portfolio` de `main.py`.
@@ -137,8 +141,9 @@ data/portfolio.py         -- Logica FIFO e IRPF (solo crypto)
 data/etf_prices.py        -- Precios ETF en EUR via yfinance (local-only)
 analysis/monte_carlo.py   -- Proyeccion jubilacion Monte Carlo
 dashboard/app.py          -- FastAPI + dashboard web (usa halving_cycle_info de cli/constants)
-cli/constants.py          -- SPARPLAN_TARGETS, LAST_HALVING, halving_cycle_info() (fuente de verdad)
-main.py                   -- CLI entry point (14 comandos)
+cli/constants.py          -- SPARPLAN_TARGETS, LAST_HALVING, DRIFT_THRESHOLD, IRPF_BRACKETS_2024, halving_cycle_info() (fuente de verdad)
+cli/commands_decision.py  -- tax-simulate, what-if, health-check, explain-alert (decision-support local)
+main.py                   -- CLI entry point (20 comandos)
 research/                 -- Scripts standalone de research (excluidos de contexto Claude)
 ```
 
