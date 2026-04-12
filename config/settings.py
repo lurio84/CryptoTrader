@@ -1,4 +1,5 @@
 from pathlib import Path
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -11,11 +12,25 @@ class BinanceSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="BINANCE_", env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 
+    @field_validator("api_key", "api_secret")
+    @classmethod
+    def no_whitespace_only(cls, v: str) -> str:
+        if v and not v.strip():
+            raise ValueError("must not be whitespace only")
+        return v
+
 
 class DiscordSettings(BaseSettings):
     webhook_url: str = ""
 
     model_config = SettingsConfigDict(env_prefix="DISCORD_", env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore")
+
+    @field_validator("webhook_url")
+    @classmethod
+    def webhook_must_be_https(cls, v: str) -> str:
+        if v and not v.startswith("https://"):
+            raise ValueError("webhook_url must start with 'https://'")
+        return v
 
 
 class RiskSettings(BaseSettings):

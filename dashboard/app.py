@@ -482,8 +482,8 @@ def api_tax_simulate(body: TaxSimulateRequest):
             rows = session.query(UserTrade).all()
             real_trades = [t.to_dict() for t in rows]
     except Exception as exc:
-        logger.error("tax_simulate: DB error: %s", exc)
-        return {"error": str(exc)}
+        logger.exception("tax_simulate error")
+        return {"error": "Internal server error"}
 
     real_report = calculate_tax_report(real_trades, year)
     real_gain = real_report["total_gain_eur"]
@@ -573,8 +573,8 @@ def api_retirement_mc(
             n_simulations=n_sim,
         )
     except Exception as exc:
-        logger.warning("retirement_mc: simulation failed: %s", exc)
-        return {"error": str(exc)}
+        logger.exception("retirement_mc error")
+        return {"error": "Internal server error"}
 
     # Deflate if inflation > 0
     def _deflate(values: list[float]) -> list[float]:

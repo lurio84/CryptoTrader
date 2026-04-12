@@ -695,17 +695,25 @@
                     var icon = document.getElementById("alert-icon");
                     icon.className = "alert-icon " + (hasRed ? "alert-icon-danger" : "alert-icon-warning");
                     icon.textContent = "!";
-                    var content = "";
+                    var alertContent = document.getElementById("alert-content");
+                    alertContent.innerHTML = "";
                     d.alerts.forEach(function(a) {
-                        content += "<h2>" + a.type + "</h2>";
-                        content += "<p>" + a.message + "</p>";
+                        var h2 = document.createElement("h2");
+                        h2.textContent = a.type;
+                        alertContent.appendChild(h2);
+                        var p = document.createElement("p");
+                        p.textContent = a.message;
+                        alertContent.appendChild(p);
+                        var span = document.createElement("span");
                         if (a.severity === "red") {
-                            content += '<span class="alert-action action-buy">Buy extra in Trade Republic</span>';
+                            span.className = "alert-action action-buy";
+                            span.textContent = "Buy extra in Trade Republic";
                         } else {
-                            content += '<span class="alert-action action-watch">Monitor closely</span>';
+                            span.className = "alert-action action-watch";
+                            span.textContent = "Monitor closely";
                         }
+                        alertContent.appendChild(span);
                     });
-                    document.getElementById("alert-content").innerHTML = content;
                 } else {
                     banner.className = "alert-banner alert-banner-ok";
                     document.getElementById("alert-icon").className = "alert-icon alert-icon-ok";
@@ -761,17 +769,43 @@
                 container.innerHTML = '<div class="empty-state">Sin alertas en los ultimos ' + _alertDays + ' dias.</div>';
                 return;
             }
-            var html = '<table><thead><tr><th>Fecha</th><th>Tipo</th><th>Severidad</th><th>BTC</th><th>Metrica</th><th>Notif.</th></tr></thead><tbody>';
+            var table = document.createElement("table");
+            var thead = document.createElement("thead");
+            thead.innerHTML = '<tr><th>Fecha</th><th>Tipo</th><th>Severidad</th><th>BTC</th><th>Metrica</th><th>Notif.</th></tr>';
+            table.appendChild(thead);
+            var tbody = document.createElement("tbody");
             rows.forEach(function(r) {
                 var sev = r.severity || "green";
-                var badge = '<span class="badge badge-' + sev + '">' + sev.toUpperCase() + '</span>';
                 var btc = r.btc_price ? '$' + Math.round(r.btc_price).toLocaleString() : '-';
                 var met = r.metric_value !== null && r.metric_value !== undefined ? Number(r.metric_value).toFixed(3) : '-';
-                var notif = r.notified ? '&#10003;' : '-';
-                html += '<tr><td>' + r.timestamp + '</td><td style="font-weight:500;">' + r.alert_type + '</td><td>' + badge + '</td><td>' + btc + '</td><td>' + met + '</td><td>' + notif + '</td></tr>';
+                var tr = document.createElement("tr");
+                var tdDate = document.createElement("td");
+                tdDate.textContent = r.timestamp;
+                var tdType = document.createElement("td");
+                tdType.style.fontWeight = "500";
+                tdType.textContent = r.alert_type;
+                var tdSev = document.createElement("td");
+                var badge = document.createElement("span");
+                badge.className = "badge badge-" + sev;
+                badge.textContent = sev.toUpperCase();
+                tdSev.appendChild(badge);
+                var tdBtc = document.createElement("td");
+                tdBtc.textContent = btc;
+                var tdMet = document.createElement("td");
+                tdMet.textContent = met;
+                var tdNotif = document.createElement("td");
+                tdNotif.textContent = r.notified ? "\u2713" : "-";
+                tr.appendChild(tdDate);
+                tr.appendChild(tdType);
+                tr.appendChild(tdSev);
+                tr.appendChild(tdBtc);
+                tr.appendChild(tdMet);
+                tr.appendChild(tdNotif);
+                tbody.appendChild(tr);
             });
-            html += '</tbody></table>';
-            container.innerHTML = html;
+            table.appendChild(tbody);
+            container.innerHTML = "";
+            container.appendChild(table);
         }).catch(function() {
             container.innerHTML = '<div class="empty-state">Error cargando historial.</div>';
         });
