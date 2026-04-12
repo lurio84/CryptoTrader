@@ -31,7 +31,7 @@ from cli.constants import halving_cycle_info
 logger = logging.getLogger(__name__)
 
 
-def _get_portfolio_summary(btc_price_eur, eth_price_eur) -> dict:
+def _get_portfolio_summary(btc_price_eur: float | None, eth_price_eur: float | None) -> dict:
     """Return portfolio value/PnL summary. Empty dict if no trades in DB."""
     from data.models import UserTrade
     from data.database import get_session
@@ -41,16 +41,19 @@ def _get_portfolio_summary(btc_price_eur, eth_price_eur) -> dict:
         ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP,
     )
 
+    _RELEVANT_ASSETS = (
+        "BTC", "ETH", "SP500", "SEMICONDUCTORS", "REALTY_INCOME", "URANIUM",
+    )
+
     with get_session() as session:
-        all_trades = session.query(UserTrade).all()
-        trades_by_asset = {}
-        for t in all_trades:
-            d = {
-                "date": t.date, "asset": t.asset, "asset_class": t.asset_class,
-                "side": t.side, "units": t.units, "price_eur": t.price_eur,
-                "fee_eur": t.fee_eur, "source": t.source, "notes": None,
-            }
-            trades_by_asset.setdefault(t.asset, []).append(d)
+        rows = (
+            session.query(UserTrade)
+            .filter(UserTrade.asset.in_(_RELEVANT_ASSETS))
+            .all()
+        )
+        trades_by_asset: dict[str, list[dict]] = {}
+        for t in rows:
+            trades_by_asset.setdefault(t.asset, []).append(t.to_dict())
 
     result = {}
 
@@ -80,8 +83,10 @@ def _get_portfolio_summary(btc_price_eur, eth_price_eur) -> dict:
     result["irpf_total_eur"] = irpf_total
     result["realized_gain_eur"] = realized_gain_total
 
-    # ETF prices (lazy yfinance, optional -- falls back gracefully in CI)
-    etf_prices = {}
+    # ETF prices (lazy yfinance, optional -- falls back gracefully in CI).
+    # NOTE: fetch_prices was already called in send_weekly_digest, so here we
+    # only need the ETF block (avoid duplicate CoinGecko hits).
+    etf_prices: dict = {}
     try:
         from data.etf_prices import fetch_all_etf_prices_eur
         etf_prices = fetch_all_etf_prices_eur() or {}

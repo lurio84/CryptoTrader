@@ -17,18 +17,16 @@ import io
 from collections import deque
 from datetime import datetime
 
+from cli.constants import (
+    IRPF_BRACKETS_2024,
+    IRPF_BRACKET_LIMITS,
+    IRPF_BRACKET_LABELS,
+    IRPF_BRACKET_RATES,
+)
 
-# ---------------------------------------------------------------------------
-# Spain IRPF 2024 tax brackets for capital gains (ahorro base)
-# ---------------------------------------------------------------------------
 
-_SPAIN_TAX_BRACKETS = [
-    (6_000,        0.19),
-    (50_000,       0.21),
-    (200_000,      0.23),
-    (300_000,      0.27),
-    (float("inf"), 0.28),
-]
+# Backwards-compat alias (private); new code should import from cli.constants.
+_SPAIN_TAX_BRACKETS = IRPF_BRACKETS_2024
 
 
 def compute_spanish_tax(annual_gain_eur: float) -> float:
@@ -37,7 +35,7 @@ def compute_spanish_tax(annual_gain_eur: float) -> float:
         return 0.0
     tax = 0.0
     prev = 0.0
-    for limit, rate in _SPAIN_TAX_BRACKETS:
+    for limit, rate in IRPF_BRACKETS_2024:
         taxable = min(annual_gain_eur, limit) - prev
         tax += taxable * rate
         prev = limit
@@ -251,7 +249,7 @@ def calculate_tax_report(all_trades: list[dict], year: int) -> dict:
     if total_gain > 0:
         prev = 0.0
         bracket_labels = ["<=6.000 EUR", "6.001-50.000 EUR", "50.001-200.000 EUR", "200.001-300.000 EUR", ">300.000 EUR"]
-        for (limit, rate), label in zip(_SPAIN_TAX_BRACKETS, bracket_labels):
+        for (limit, rate), label in zip(IRPF_BRACKETS_2024, bracket_labels):
             taxable = min(total_gain, limit) - prev
             if taxable <= 0:
                 break
@@ -282,24 +280,14 @@ def calculate_tax_report(all_trades: list[dict], year: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# IRPF headroom helper
+# IRPF headroom helper (uses IRPF_BRACKET_* from cli.constants)
 # ---------------------------------------------------------------------------
-
-_BRACKET_LIMITS = [6_000, 50_000, 200_000, 300_000]
-_BRACKET_LABELS = ["19% (<=6.000 EUR)", "21% (6k-50k)", "23% (50k-200k)", "27% (200k-300k)", "28% (>300k)"]
-_BRACKET_RATES  = [0.19, 0.21, 0.23, 0.27, 0.28]
 
 
 def compute_tax_headroom(realized_eur: float) -> dict:
-    """Return IRPF bracket info and headroom to next bracket for realized gains.
-
-    Returns dict:
-      current_bracket_label, current_rate_pct,
-      headroom_eur (None if in top bracket),
-      next_bracket_limit (None if top bracket)
-    """
-    limits = _BRACKET_LIMITS + [None]  # None = top bracket
-    for i, (limit, rate, label) in enumerate(zip(limits, _BRACKET_RATES, _BRACKET_LABELS)):
+    """Return IRPF bracket info and headroom to next bracket for realized gains."""
+    limits = IRPF_BRACKET_LIMITS + [None]  # None = top bracket
+    for limit, rate, label in zip(limits, IRPF_BRACKET_RATES, IRPF_BRACKET_LABELS):
         threshold = limit if limit is not None else float("inf")
         if realized_eur <= threshold:
             headroom = (threshold - realized_eur) if limit is not None else None
@@ -309,10 +297,9 @@ def compute_tax_headroom(realized_eur: float) -> dict:
                 "headroom_eur": headroom,
                 "next_bracket_limit": limit,
             }
-    # Fallback: top bracket
     return {
-        "current_bracket_label": _BRACKET_LABELS[-1],
-        "current_rate_pct": _BRACKET_RATES[-1] * 100,
+        "current_bracket_label": IRPF_BRACKET_LABELS[-1],
+        "current_rate_pct": IRPF_BRACKET_RATES[-1] * 100,
         "headroom_eur": None,
         "next_bracket_limit": None,
     }

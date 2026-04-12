@@ -28,10 +28,26 @@ def _migrate_user_trade() -> None:
             conn.commit()
 
 
+def _ensure_indexes() -> None:
+    """Create additional indexes on existing tables if missing (idempotent)."""
+    _indexes = {
+        "ix_alert_log_alert_type": "CREATE INDEX IF NOT EXISTS ix_alert_log_alert_type ON alert_log(alert_type)",
+        "ix_alert_log_timestamp":  "CREATE INDEX IF NOT EXISTS ix_alert_log_timestamp ON alert_log(timestamp)",
+        "ix_alert_log_type_ts":    "CREATE INDEX IF NOT EXISTS ix_alert_log_type_ts ON alert_log(alert_type, timestamp)",
+        "ix_user_portfolio_snapshot_snapshot_date": "CREATE INDEX IF NOT EXISTS ix_user_portfolio_snapshot_snapshot_date ON user_portfolio_snapshot(snapshot_date)",
+        "ix_user_trade_asset_date": "CREATE INDEX IF NOT EXISTS ix_user_trade_asset_date ON user_trade(asset, date)",
+    }
+    with engine.connect() as conn:
+        for stmt in _indexes.values():
+            conn.execute(text(stmt))
+        conn.commit()
+
+
 def init_db() -> None:
     """Create all tables if they don't exist, then apply pending migrations."""
     Base.metadata.create_all(bind=engine)
     _migrate_user_trade()
+    _ensure_indexes()
 
 
 @contextmanager

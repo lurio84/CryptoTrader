@@ -2,6 +2,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     Float,
+    Index,
     Integer,
     String,
     Text,
@@ -105,14 +106,18 @@ class AlertLog(Base):
     __tablename__ = "alert_log"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp = Column(DateTime, nullable=False, default=func.now())
-    alert_type = Column(String, nullable=False)  # "btc_crash", "funding_negative", "mvrv_low"
+    timestamp = Column(DateTime, nullable=False, default=func.now(), index=True)
+    alert_type = Column(String, nullable=False, index=True)
     severity = Column(String, nullable=False)  # "red", "orange", "yellow"
     message = Column(String, nullable=False)
     btc_price = Column(Float, nullable=True)
     eth_price = Column(Float, nullable=True)
     metric_value = Column(Float, nullable=True)  # the value that triggered the alert
     notified = Column(Integer, nullable=False, default=0)  # 1 if discord sent
+
+    __table_args__ = (
+        Index("ix_alert_log_type_ts", "alert_type", "timestamp"),
+    )
 
     def __repr__(self) -> str:
         return f"<AlertLog {self.alert_type} {self.severity} {self.timestamp}>"
@@ -124,7 +129,7 @@ class UserPortfolioSnapshot(Base):
     __tablename__ = "user_portfolio_snapshot"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    snapshot_date = Column(String, nullable=False)   # ISO week string "YYYY-Www"
+    snapshot_date = Column(String, nullable=False, index=True)   # ISO week string "YYYY-Www"
     data_json = Column(Text, nullable=False)          # JSON: btc_value, eth_value, etf_value, total, pnls, irpf
     created_at = Column(DateTime, nullable=False, default=func.now())
 
@@ -157,6 +162,25 @@ class UserTrade(Base):
     # Source options: sparplan | crash_buy | mvrv_buy | dca_out | rebalance | manual
     notes = Column(String, nullable=True)              # Free-form comment
     created_at = Column(DateTime, nullable=False, default=func.now())
+
+    __table_args__ = (
+        Index("ix_user_trade_asset_date", "asset", "date"),
+    )
+
+    def to_dict(self) -> dict:
+        """Plain dict for use outside the SQLAlchemy session."""
+        return {
+            "id": self.id,
+            "date": self.date,
+            "asset": self.asset,
+            "asset_class": self.asset_class or "crypto",
+            "side": self.side,
+            "units": self.units,
+            "price_eur": self.price_eur,
+            "fee_eur": self.fee_eur,
+            "source": self.source,
+            "notes": self.notes,
+        }
 
     def __repr__(self) -> str:
         return f"<UserTrade {self.side} {self.units:.6f} {self.asset} @ {self.price_eur:.2f} EUR ({self.source})>"

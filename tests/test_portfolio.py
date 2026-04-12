@@ -361,7 +361,7 @@ def test_cmd_tax_headroom_no_trades(db_session, capsys):
 
     args = argparse.Namespace(year=2024)
     with (
-        patch("data.database.get_session", _session_ctx),
+        patch("cli.commands_portfolio.get_session", _session_ctx),
         patch("data.database.init_db"),
         patch("data.market_data.fetch_prices", return_value={
             "btc_price_eur": 70_000.0, "eth_price_eur": 1_800.0,
@@ -398,7 +398,7 @@ def test_cmd_tax_headroom_with_realized_gains(db_session, capsys):
 
     args = argparse.Namespace(year=2024)
     with (
-        patch("data.database.get_session", _session_ctx),
+        patch("cli.commands_portfolio.get_session", _session_ctx),
         patch("data.database.init_db"),
         patch("data.market_data.fetch_prices", return_value={
             "btc_price_eur": 70_000.0, "eth_price_eur": 1_800.0,

@@ -170,6 +170,39 @@ def fetch_sp500_change(days: int = 5) -> float | None:
         return None
 
 
+def fetch_portfolio_prices_eur(include_etfs: bool = True) -> dict:
+    """Fetch BTC/ETH prices in EUR plus optional ETF prices for portfolio views.
+
+    Args:
+        include_etfs: If True, try to fetch ETF EUR prices via yfinance (lazy import).
+                      Fails gracefully if yfinance is unavailable (e.g. CI).
+
+    Returns dict with keys:
+        btc_eur:        float | None
+        eth_eur:        float | None
+        etf_prices:     dict[str, float]  (may be empty)
+
+    Shared by cli/commands_portfolio.py, cli/commands_ops.py (drift-check),
+    alerts/digest.py and dashboard endpoints.
+    """
+    result = {"btc_eur": None, "eth_eur": None, "etf_prices": {}}
+
+    prices = fetch_prices()
+    result["btc_eur"] = prices.get("btc_price_eur")
+    result["eth_eur"] = prices.get("eth_price_eur")
+
+    if include_etfs:
+        try:
+            from data.etf_prices import fetch_all_etf_prices_eur
+            result["etf_prices"] = fetch_all_etf_prices_eur() or {}
+        except ImportError:
+            logger.info("yfinance not installed -- ETF prices unavailable")
+        except Exception as exc:
+            logger.warning("ETF price fetch failed: %s", exc)
+
+    return result
+
+
 def fetch_fear_greed() -> dict:
     """Fetch current Fear & Greed Index from alternative.me.
 
