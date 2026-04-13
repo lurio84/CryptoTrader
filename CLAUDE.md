@@ -32,7 +32,7 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 
 ## Decisiones arquitectura activas
 
-- Precios: CoinGecko (USD+EUR en una llamada). Funding: OKX. MVRV: CoinMetrics community.
+- Precios: CoinGecko primario (USD+EUR en una llamada); Kraken como fallback automatico si CoinGecko devuelve 429 (comun en GitHub Actions). `check_and_alert()` acepta `prices` inyectado para evitar doble fetch. Funding: OKX. MVRV: CoinMetrics community.
 - S&P500: FRED serie SP500 (CSV publico, sin API key, CI-safe). NO usar yfinance ni Stooq en alerts/CI.
 - Fear & Greed: NO usar como senal (validado que no funciona)
 - MVRV alto (BTC o ETH): NO es senal de venta (momentum continua en ciclos modernos)
@@ -117,7 +117,7 @@ python main.py collect --symbols BTC/USDT ETH/USDT --since 2020-01-01
 
 ## Fuentes de datos (todas publicas, sin API key)
 
-- Precios BTC/ETH: CoinGecko API (USD + EUR + 24h_change en una sola llamada)
+- Precios BTC/ETH: CoinGecko API (USD + EUR + 24h_change en una sola llamada); fallback automatico a Kraken si CoinGecko devuelve 429 (frecuente en GitHub Actions IPs). Ambas fuentes sin API key.
 - Funding rate: OKX API (Binance y Bybit bloquean IPs de GitHub)
 - ETH MVRV + BTC MVRV: CoinMetrics community API
 - S&P500 diario: FRED serie `SP500` (`fetch_sp500_change()` en `data/market_data.py`). Sin API key, CI-safe. Stooq deprecado 2026-04 (ahora requiere apikey + captcha).
