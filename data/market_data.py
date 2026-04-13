@@ -51,13 +51,65 @@ def _get_with_retry(url: str, params: dict | None = None, timeout: int = 10, ret
     raise last_exc  # type: ignore[misc]
 
 
+def _fetch_kraken_prices() -> dict:
+    """Fallback price fetch from Kraken public API (no key required).
+
+    Uses pairs XBTUSD, ETHUSD, XBTEUR, ETHEUR.
+    24h change is approximated as (last - open_24h) / open_24h * 100,
+    where open_24h is Kraken's daily open (midnight UTC), close enough
+    to CoinGecko's rolling 24h for signal purposes.
+    """
+    resp = _get_with_retry(
+        "https://api.kraken.com/0/public/Ticker",
+        params={"pair": "XBTUSD,ETHUSD,XBTEUR,ETHEUR"},
+        timeout=10,
+    )
+    data = resp.json()
+    if data.get("error"):
+        raise ValueError("Kraken API error: {}".format(data["error"]))
+    r = data["result"]
+    # Kraken returns pairs under normalised keys; map by iterating results
+    by_pair: dict[str, dict] = {}
+    for key, val in r.items():
+        k = key.upper()
+        for alias in ("XXBTZUSD", "XBTUSD"):
+            if alias in k:
+                by_pair["btc_usd"] = val
+        for alias in ("XETHZUSD", "ETHUSD"):
+            if alias in k:
+                by_pair["eth_usd"] = val
+        for alias in ("XXBTZEUR", "XBTEUR"):
+            if alias in k:
+                by_pair["btc_eur"] = val
+        for alias in ("XETHZEUR", "ETHEUR"):
+            if alias in k:
+                by_pair["eth_eur"] = val
+
+    def _price(d: dict) -> float:
+        return float(d["c"][0])
+
+    def _change(d: dict) -> float:
+        last = float(d["c"][0])
+        open_ = float(d["o"])
+        return (last - open_) / open_ * 100 if open_ else 0.0
+
+    return {
+        "btc_price":      _price(by_pair["btc_usd"]),
+        "btc_price_eur":  _price(by_pair["btc_eur"]),
+        "btc_change_24h": _change(by_pair["btc_usd"]),
+        "eth_price":      _price(by_pair["eth_usd"]),
+        "eth_price_eur":  _price(by_pair["eth_eur"]),
+        "eth_change_24h": _change(by_pair["eth_usd"]),
+    }
+
+
 def fetch_prices() -> dict:
-    """Fetch BTC and ETH prices from CoinGecko.
+    """Fetch BTC and ETH prices. Tries CoinGecko first, falls back to Kraken.
 
     Returns dict with keys:
         btc_price, btc_price_eur, btc_change_24h,
         eth_price, eth_price_eur, eth_change_24h
-    All values are None on failure.
+    All values are None only if both sources fail.
     """
     try:
         resp = _get_with_retry(
@@ -80,7 +132,14 @@ def fetch_prices() -> dict:
             "eth_change_24h":  data["ethereum"]["usd_24h_change"],
         }
     except Exception as e:
-        logger.error("Failed to fetch prices from CoinGecko: %s", e)
+        logger.warning("CoinGecko prices unavailable (%s), trying Kraken fallback", e)
+
+    try:
+        prices = _fetch_kraken_prices()
+        logger.info("Prices fetched from Kraken fallback")
+        return prices
+    except Exception as e:
+        logger.error("Failed to fetch prices from CoinGecko and Kraken: %s", e)
         return {
             "btc_price": None, "btc_price_eur": None, "btc_change_24h": None,
             "eth_price": None, "eth_price_eur": None, "eth_change_24h": None,

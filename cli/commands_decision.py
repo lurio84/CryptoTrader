@@ -319,9 +319,9 @@ def _check_apis() -> dict:
 
     prices, err = _result(f_prices)
     if prices and prices.get("btc_price"):
-        lines.append(f"  [OK]  CoinGecko (prices): BTC=${prices['btc_price']:,.0f}")
+        lines.append(f"  [OK]  Prices (CoinGecko/Kraken): BTC=${prices['btc_price']:,.0f}")
     else:
-        lines.append(f"  [RED] CoinGecko (prices): {err or 'no data'}")
+        lines.append(f"  [RED] Prices (CoinGecko/Kraken): {err or 'no data'}")
         all_ok = False
 
     mvrv, err = _result(f_mvrv)
