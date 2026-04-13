@@ -56,24 +56,25 @@ def calculate_metrics(
 ) -> BacktestMetrics:
     """Calculate backtest performance metrics from trade list and equity curve."""
 
-    total_return_pct = ((equity_curve.iloc[-1] - initial_capital) / initial_capital) * 100
-    buy_and_hold_return_pct = ((last_price - first_price) / first_price) * 100
-    excess_return_pct = total_return_pct - buy_and_hold_return_pct
+    with np.errstate(invalid="ignore", divide="ignore"):
+        total_return_pct = ((equity_curve.iloc[-1] - initial_capital) / initial_capital) * 100
+        buy_and_hold_return_pct = ((last_price - first_price) / first_price) * 100
+        excess_return_pct = total_return_pct - buy_and_hold_return_pct
 
-    # Sharpe ratio (annualized). periods_per_year: 8760=hourly, 365=daily, 52=weekly
-    returns = equity_curve.pct_change().dropna()
-    if len(returns) > 1 and returns.std() > 0:
-        sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(periods_per_year)
-    else:
-        sharpe_ratio = 0.0
+        # Sharpe ratio (annualized). periods_per_year: 8760=hourly, 365=daily, 52=weekly
+        returns = equity_curve.pct_change().dropna()
+        if len(returns) > 1 and returns.std() > 0:
+            sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(periods_per_year)
+        else:
+            sharpe_ratio = 0.0
 
-    # Max drawdown — guard against peak==0 to avoid inf/-inf
-    peak = equity_curve.cummax()
-    drawdown = pd.Series(
-        np.where(peak.values != 0, (equity_curve.values - peak.values) / peak.values, 0.0),
-        index=equity_curve.index,
-    )
-    max_drawdown_pct = abs(drawdown.min()) * 100
+        # Max drawdown — guard against peak==0 to avoid inf/-inf
+        peak = equity_curve.cummax()
+        drawdown = pd.Series(
+            np.where(peak.values != 0, (equity_curve.values - peak.values) / peak.values, 0.0),
+            index=equity_curve.index,
+        )
+        max_drawdown_pct = abs(drawdown.min()) * 100
 
     # Trade statistics
     pnls = [t["pnl"] for t in trades if t.get("pnl") is not None]
