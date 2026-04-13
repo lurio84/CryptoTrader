@@ -109,7 +109,7 @@ def cmd_check(args: argparse.Namespace) -> None:
 
     if args.notify:
         from alerts.discord_bot import check_and_alert
-        triggered = check_and_alert()
+        triggered = check_and_alert(prices=prices)
         if triggered:
             sent = sum(1 for a in triggered if a.get("sent"))
             print(f"\n  Discord alerts sent: {sent}/{len(triggered)}")

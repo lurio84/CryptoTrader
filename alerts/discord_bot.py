@@ -205,14 +205,19 @@ def _check_dca_out(
 # Main check
 # ---------------------------------------------------------------------------
 
-def check_and_alert() -> list[dict]:
+def check_and_alert(prices: dict | None = None) -> list[dict]:
     """
     Check all signal thresholds and send Discord alerts if triggered.
     Returns list of triggered alerts.
+
+    If `prices` is provided, it is reused instead of re-fetching from CoinGecko.
+    This avoids a second API call (and potential 429) when the caller already
+    obtained prices in the same cycle.
     """
     init_db()
 
-    prices = fetch_prices()
+    if prices is None:
+        prices = fetch_prices()
     funding_rate = fetch_funding_rate()
     eth_mvrv = fetch_mvrv("eth")
     sp500_change = fetch_sp500_change()
