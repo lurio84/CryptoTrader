@@ -23,16 +23,20 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+_HEADERS = {"User-Agent": "CryptoTrader/1.0 (+https://github.com/lurio84/CryptoTrader)"}
+
+
 def _get_with_retry(url: str, params: dict | None = None, timeout: int = 10, retries: int = 3) -> requests.Response:
     """HTTP GET with exponential backoff retry on transient network errors.
 
     Raises the last exception if all retries are exhausted.
-    Waits 1s, 2s between attempts (2^attempt seconds).
+    Waits 2^attempt seconds between attempts (1s, 2s, 4s, ...).
+    Sends a descriptive User-Agent so APIs can identify and rate-limit us fairly.
     """
     last_exc: Exception | None = None
     for attempt in range(retries):
         try:
-            resp = requests.get(url, params=params, timeout=timeout)
+            resp = requests.get(url, params=params, timeout=timeout, headers=_HEADERS)
             resp.raise_for_status()
             return resp
         except Exception as exc:
@@ -64,6 +68,7 @@ def fetch_prices() -> dict:
                 "include_24hr_change": "true",
             },
             timeout=10,
+            retries=5,
         )
         data = resp.json()
         return {
