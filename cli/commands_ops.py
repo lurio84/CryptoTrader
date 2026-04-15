@@ -12,7 +12,6 @@ def cmd_check(args: argparse.Namespace) -> None:
     from data.market_data import fetch_prices, fetch_mvrv, fetch_funding_rate, fetch_fear_greed
     from alerts.discord_bot import (
         BTC_CRASH_THRESHOLD, FUNDING_RATE_THRESHOLD,
-        ETH_MVRV_CRITICAL, ETH_MVRV_LOW,
         BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP, BTC_DCA_OUT_MAX, BTC_DCA_OUT_PCT,
         ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP, ETH_DCA_OUT_MAX, ETH_DCA_OUT_PCT,
     )
@@ -45,7 +44,7 @@ def cmd_check(args: argparse.Namespace) -> None:
     if funding is not None:
         print(f"    Funding: {funding*100:.4f}%")
     if mvrv is not None:
-        print(f"    ETH MVRV: {mvrv:.3f}")
+        print(f"    ETH MVRV: {mvrv:.3f}  (informativo, no es senal de compra -- research13)")
     if btc_mvrv is not None:
         print(f"    BTC MVRV: {btc_mvrv:.3f}  (informativo, no es senal de venta)")
 
@@ -73,15 +72,6 @@ def cmd_check(args: argparse.Namespace) -> None:
     if funding is not None and funding < FUNDING_RATE_THRESHOLD:
         print(f"    [ORANGE] Negative funding ({funding*100:.4f}%)")
         print("          -> Bullish signal, consider extra BTC buy")
-        has_alert = True
-
-    if mvrv is not None and mvrv < ETH_MVRV_CRITICAL:
-        print(f"    [RED] ETH MVRV at {mvrv:.3f} (< {ETH_MVRV_CRITICAL}) - deep value!")
-        print("          -> Buy extra 100 EUR of ETH in Trade Republic")
-        has_alert = True
-    elif mvrv is not None and mvrv < ETH_MVRV_LOW:
-        print(f"    [YELLOW] ETH MVRV at {mvrv:.3f} (< {ETH_MVRV_LOW}) - undervalued")
-        print("          -> Consider increasing ETH Sparplan temporarily")
         has_alert = True
 
     if btc_price is not None:

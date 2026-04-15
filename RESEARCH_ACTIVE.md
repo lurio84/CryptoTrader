@@ -13,6 +13,8 @@ Para research descartado e historico completo ver `RESEARCH_ARCHIVE.md`.
 | S&P 500 crash (Research 6) | ACTIVO | Alerta -7% en 5d, N=13, p=0.003 |
 | BTC crash -15% 24h (Research 8) | MANTENER | -14% mejor soporte estadistico pero diff 1pp |
 | BTC multi-day crash -20% 7d (Research 11) | ORANGE-ESPERA | N_OOS=4 insuficiente; re-evaluar 2027-2028 |
+| BTC funding rate negativo (Research 12) | ACTIVO | Alerta -0.01% validada, N=127, p<0.001, OOS +2.5% |
+| DCA-out ETH sistematico (Research 14) | ACTIVO | Venta 3% cada $1k sobre $3k. Delta after-tax +1,324 EUR vs hold (+45%) |
 
 Metodologia obligatoria por research: split 70/30 IS/OOS + Mann-Whitney U p<0.05 IS + bootstrap 95% CI (N=10.000) + positivo OOS.
 
@@ -115,6 +117,79 @@ Setup: yfinance BTC-USD 2015-2026. Signal: caida de N% en W dias. Exclusion: si 
 **Limitacion critica:** N_OOS = 4 es muy bajo. El veredicto RED es estadisticamente valido pero la senal real-world necesita mas eventos OOS antes de confiar en el edge completamente.
 
 **ORANGE de espera**: la senal tiene edge pero N_OOS=4 insuficiente. Re-evaluar cuando N_OOS >= 8 (estimado 2027-2028 en ciclo alcista). Si se implementa: umbral -20% en 7d, cooldown 7d, severidad orange.
+
+---
+
+## Research 12: BTC funding rate negativo (2026-04)
+
+Script: `research/funding_negative_research.py`
+Cache: `data/research_cache/funding_negative_results.txt`
+
+Motivacion: cerrar deuda metodologica. `funding_negative` era la unica senal en produccion sin backtest formal (threshold -0.01% heredado por intuicion, nunca validado con IS/OOS + Mann-Whitney + bootstrap).
+
+Hipotesis: cuando el funding BTC de futuros perpetuos se vuelve significativamente negativo (shorts pagan a longs), historicamente precede rebotes.
+
+Setup: Binance BTCUSDT perpetual funding (cada 8h, desde 2019-10). Signal day = min de las 3 fundings del dia < threshold. Cooldown 1d (matches produccion). Split IS <2023 / OOS >=2023. Horizontes 7d/14d/30d. Bootstrap N=10.000.
+
+**Resultados principales (forward 7d):**
+
+| Variante | Threshold | N | N_OOS | Delta 7d | p-val | WR | IS | OOS | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| **plain** | **-0.01%** | **127** | **9** | **+3.7pp** | **<0.001** | **67%** | **+4.6%** | **+2.5%** | **RED** |
+| plain | -0.02% | 43 | 0 | +6.4pp | <0.001 | 79% | +7.2% | n/a | RED (sin OOS) |
+| plain | -0.03% | 21 | 0 | +9.4pp | <0.001 | 95% | +10.3% | n/a | RED (sin OOS) |
+| persist>=2 | -0.01% | 101 | 8 | +4.0pp | <0.001 | 68% | +4.9% | +3.7% | RED |
+
+**Hallazgos clave:**
+
+1. **Threshold actual (-0.01%) validado**: N=127, p<0.001, OOS positivo. La intuicion original era correcta, ahora esta soportada por datos.
+2. **Thresholds mas estrictos (-0.02% a -0.05%) tienen delta mayor pero N_OOS=0**: todos los eventos extremos ocurrieron antes de 2023. No se pueden validar fuera de muestra.
+3. **Variante persistencia (2+ fundings 8h consecutivos negativos)** mejora OOS marginalmente (+3.7% vs +2.5%) a costa de complejidad. No se implementa.
+4. **Limitacion**: N_OOS=9 es bajo. El edge es real pero con pocos eventos post-2023 (mercado alcista con funding mayoritariamente positivo).
+
+**MANTENER -0.01% en produccion.** `FUNDING_RATE_THRESHOLD = -0.0001` SIN CAMBIOS. Re-evaluar si en proximo bear market N_OOS alcanza ~20.
+
+---
+
+## Research 14: ETH DCA-out sistematico (2026-04)
+
+Script: `research/eth_dca_out_research.py`
+Cache: `data/research_cache/eth_dca_out_results.txt`
+
+Motivacion: cerrar deuda metodologica. Las alertas `eth_dca_out_Xk` estaban en produccion con parametros (`base=$3k`, `step=$1k`, `pct=3%`, `cooldown=30d`, `max=$50k`) **nunca formalmente backtesteados**. El script `exit_signals_research4.py` analiza solo BTC; los parametros ETH estan en Part 3 (linea 705) como "suggested" por extrapolacion desde BTC, sin simulacion. Esta situacion es distinta a Research 3 (BTC DCA-out) que si tuvo simulacion completa.
+
+Setup: simulacion 2018-01 a 2026-04, Sparplan ETH 2 EUR/semana (matches production), IRPF Spain 2024 con FIFO cost basis, EUR/USD=1.10. Mismas reglas de produccion (cooldown 30d por nivel, venta `pct%` de holdings al cruzar nivel).
+
+**Grid de parametros testeado:**
+
+| Config | End after-tax | Delta vs HOLD | CAGR | N sales |
+|---|---|---|---|---|
+| HOLD (baseline) | 2,939 | - | 16.0% | 0 |
+| **PROD b=$3k s=$1k p=3%** | **4,263** | **+1,324 (+45%)** | **21.4%** | **35** |
+| b=$3k s=$500 p=3% (fine) | 4,700 | +1,761 (+60%) | 22.8% | 57 |
+| b=$3k s=$1k p=5% | 4,641 | +1,702 (+58%) | 22.7% | 35 |
+| b=$3k s=$2k p=3% | 3,933 | +994 (+34%) | 20.2% | 26 |
+| b=$4k s=$1k p=3% | 3,550 | +610 (+21%) | 18.7% | 9 |
+| b=$4k s=$1k p=5% | 3,882 | +943 (+32%) | 20.0% | 9 |
+| b=$5k s=$1k p=3% | 2,939 | **+0 (nunca dispara)** | 16.0% | 0 |
+
+**Hallazgos clave:**
+
+1. **Parametros de produccion validados**: +1,324 EUR despues de impuestos (+45%) vs hold puro en el periodo 2018-2026. CAGR 21.4% vs 16.0% hold (+5.35pp).
+
+2. **Base=$3k es correcto**: cualquier base >= $4k reduce drasticamente el edge. ETH paso mucho menos tiempo sobre $4k (131 dias vs 614 sobre $3k). Base=$5k nunca disparo (ETH max historico = $4,831 el 2021-11-10).
+
+3. **Step=$1k es el compromiso optimo**: step=$500 es marginalmente mejor (+$437) pero overhead operacional y 57 vs 35 ventas (mas eventos fiscales). Step=$2k pierde edge (-$330 vs produccion).
+
+4. **pct=3% validado**: pct=5% es marginalmente mejor (+$378 EUR) pero con mayor regret risk si ETH continua subiendo despues. Mantener 3% por consistencia con BTC y menor drawdown en escenarios alcistas.
+
+5. **Niveles $5k-$50k en la config son especulativos**: historicamente nunca han disparado. No cuestan nada tenerlos en el codigo (se activaran solo si ETH los alcanza en el proximo ciclo). **ETH necesita subir +37% desde ATH actual para activar el primer nivel nuevo.**
+
+6. **Impuestos IRPF bien modelados**: 798 EUR pagados (18.9% del EUR vendido), consistente con los tramos espanoles para gains anuales 5-15k EUR. El after-tax advantage sigue siendo sustancial despues de pagar impuestos progresivos.
+
+**MANTENER parametros actuales.** `ETH_DCA_OUT_BASE=3_000`, `ETH_DCA_OUT_STEP=1_000`, `ETH_DCA_OUT_PCT=3`, `ETH_DCA_OUT_MAX=50_000`, `COOLDOWN_DCA_OUT=720h` SIN CAMBIOS.
+
+**Limitacion**: backtest 2018-2026 incluye un unico ciclo completo (2020-2022). El edge depende fuertemente de que ETH vuelva a alcanzar $3k+ y luego caiga (como en 2021-2022). Si el proximo ciclo peak es mucho mayor ($10k+) sin retracements significativos, el DCA-out sub-performaria. Escenario de regret: ETH a $15k permanente sin caidas -> hold habria sido mejor. Mitigacion: pct=3% (no 5%) conservador.
 
 ---
 

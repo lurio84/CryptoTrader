@@ -1,7 +1,7 @@
 """Tests for alerts/discord_bot.py signal logic.
 
 Mocking strategy:
-- External API calls (fetch_prices, fetch_mvrv, fetch_funding_rate) are patched
+- External API calls (fetch_prices, fetch_funding_rate, fetch_sp500_change) are patched
   at the discord_bot module level where they are imported.
 - send_discord_message is patched to avoid real HTTP calls.
 - get_session is patched to use the in-memory db_session fixture.
@@ -71,7 +71,6 @@ def test_no_alerts_when_normal(db_session):
     """All metrics in normal range -> empty list returned."""
     with (
         patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0001),
         patch("alerts.discord_bot.fetch_sp500_change", return_value=0.5),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
@@ -94,7 +93,6 @@ def test_btc_crash_triggered(db_session):
 
     with (
         patch("alerts.discord_bot.fetch_prices", return_value=prices),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
         patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
@@ -119,7 +117,6 @@ def test_btc_crash_not_triggered_small_drop(db_session):
 
     with (
         patch("alerts.discord_bot.fetch_prices", return_value=prices),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
         patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
@@ -140,7 +137,6 @@ def test_funding_negative_triggered(db_session):
     """Negative funding rate triggers funding_negative alert."""
     with (
         patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=-0.0002),
         patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
@@ -154,44 +150,8 @@ def test_funding_negative_triggered(db_session):
     assert "funding_negative" in types
 
 
-# ---------------------------------------------------------------------------
-# check_and_alert -- ETH MVRV
-# ---------------------------------------------------------------------------
-
-def test_eth_mvrv_critical(db_session):
-    """ETH MVRV < 0.8 triggers mvrv_critical (red)."""
-    with (
-        patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=0.6),
-        patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
-        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
-        patch("alerts.discord_bot.send_discord_message", return_value=True),
-        patch("alerts.discord_bot.init_db"),
-        patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
-    ):
-        from alerts.discord_bot import check_and_alert
-        result = check_and_alert()
-
-    assert any(a["type"] == "mvrv_critical" and a["severity"] == "red" for a in result)
-    assert not any(a["type"] == "mvrv_low" for a in result)
-
-
-def test_eth_mvrv_low(db_session):
-    """ETH MVRV between 0.8 and 1.0 triggers mvrv_low (yellow), not critical."""
-    with (
-        patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=0.9),
-        patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
-        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
-        patch("alerts.discord_bot.send_discord_message", return_value=True),
-        patch("alerts.discord_bot.init_db"),
-        patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
-    ):
-        from alerts.discord_bot import check_and_alert
-        result = check_and_alert()
-
-    assert any(a["type"] == "mvrv_low" and a["severity"] == "yellow" for a in result)
-    assert not any(a["type"] == "mvrv_critical" for a in result)
+# ETH MVRV tests removed 2026-04: signal discarded in research13 (does not
+# beat baseline under IS/OOS methodology). See RESEARCH_ARCHIVE.md.
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +164,6 @@ def test_btc_dca_out_level_triggered(db_session):
 
     with (
         patch("alerts.discord_bot.fetch_prices", return_value=prices),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
         patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
@@ -225,7 +184,6 @@ def test_eth_dca_out_level_triggered(db_session):
 
     with (
         patch("alerts.discord_bot.fetch_prices", return_value=prices),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
         patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
@@ -252,7 +210,6 @@ def test_deduplication_prevents_double_alert(db_session):
 
     with (
         patch("alerts.discord_bot.fetch_prices", return_value=prices),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
         patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
@@ -263,7 +220,6 @@ def test_deduplication_prevents_double_alert(db_session):
 
     with (
         patch("alerts.discord_bot.fetch_prices", return_value=prices),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
         patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
@@ -290,7 +246,6 @@ def test_sp500_crash_triggered(db_session):
     """S&P500 drop of -8% over 5d triggers sp500_crash (orange)."""
     with (
         patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
         patch("alerts.discord_bot.fetch_sp500_change", return_value=-8.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
@@ -312,7 +267,6 @@ def test_sp500_no_alert_when_normal(db_session):
     """S&P500 change of -2% does NOT trigger sp500_crash."""
     with (
         patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
         patch("alerts.discord_bot.fetch_sp500_change", return_value=-2.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
@@ -329,7 +283,6 @@ def test_sp500_none_does_not_crash(db_session):
     """fetch_sp500_change returning None (Stooq unavailable) does not trigger any alert."""
     with (
         patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
         patch("alerts.discord_bot.fetch_sp500_change", return_value=None),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
@@ -424,7 +377,6 @@ def _add_heartbeat(db_session, hours_ago: float):
 def _run_normal_check(db_session):
     with (
         patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
-        patch("alerts.discord_bot.fetch_mvrv", return_value=1.5),
         patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
         patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
         patch("alerts.discord_bot.send_discord_message", return_value=True),

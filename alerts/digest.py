@@ -24,7 +24,7 @@ from alerts.discord_bot import (
     BTC_CRASH_THRESHOLD,
     BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP, BTC_DCA_OUT_MAX,
     ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP, ETH_DCA_OUT_MAX,
-    SP500_CRASH_THRESHOLD, ETH_MVRV_CRITICAL, ETH_MVRV_LOW,
+    SP500_CRASH_THRESHOLD,
 )
 from cli.constants import halving_cycle_info
 
@@ -355,12 +355,8 @@ def send_weekly_digest() -> bool:
             signals_lines.append("BTC CRASH: umbral alcanzado ({:+.1f}% 24h)".format(btc_change))
 
     if eth_mvrv is not None:
-        if eth_mvrv >= ETH_MVRV_LOW:
-            signals_lines.append("ETH MVRV: -{:.3f} para zona amarilla (actual {:.3f})".format(eth_mvrv - ETH_MVRV_LOW, eth_mvrv))
-        elif eth_mvrv >= ETH_MVRV_CRITICAL:
-            signals_lines.append("ETH MVRV: zona amarilla. -{:.3f} para rojo (actual {:.3f})".format(eth_mvrv - ETH_MVRV_CRITICAL, eth_mvrv))
-        else:
-            signals_lines.append("ETH MVRV: zona ROJA activa (actual {:.3f})".format(eth_mvrv))
+        # ETH MVRV informativo solo (research13 descarto como senal de compra)
+        signals_lines.append("ETH MVRV: {:.3f} (informativo)".format(eth_mvrv))
 
     if sp500_change is not None:
         gap_sp500 = sp500_change - SP500_CRASH_THRESHOLD

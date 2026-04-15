@@ -17,7 +17,6 @@ from data.market_data import fetch_prices, fetch_mvrv, fetch_funding_rate, fetch
 from data.models import AlertLog, UserPortfolioSnapshot
 from alerts.discord_bot import (
     BTC_CRASH_THRESHOLD, FUNDING_RATE_THRESHOLD,
-    ETH_MVRV_CRITICAL, ETH_MVRV_LOW,
 )
 from cli.constants import halving_cycle_info
 
@@ -92,7 +91,7 @@ def _get_alert_history(limit: int = 20) -> list[dict]:
         return []
 
 
-def _evaluate_alerts(prices: dict, funding_rate: float | None, mvrv: float | None) -> list[dict]:
+def _evaluate_alerts(prices: dict, funding_rate: float | None) -> list[dict]:
     """Evaluate current alert conditions using thresholds from discord_bot."""
     alerts = []
 
@@ -113,19 +112,7 @@ def _evaluate_alerts(prices: dict, funding_rate: float | None, mvrv: float | Non
             ),
         })
 
-    if mvrv is not None:
-        if mvrv < ETH_MVRV_CRITICAL:
-            alerts.append({
-                "severity": "red",
-                "type": "ETH MVRV Critical",
-                "message": "ETH MVRV at %.2f (< %.1f) - historically strong buy zone" % (mvrv, ETH_MVRV_CRITICAL),
-            })
-        elif mvrv < ETH_MVRV_LOW:
-            alerts.append({
-                "severity": "yellow",
-                "type": "ETH MVRV Low",
-                "message": "ETH MVRV at %.2f (< %.1f) - undervalued territory" % (mvrv, ETH_MVRV_LOW),
-            })
+    # ETH MVRV alerts removed 2026-04 (research13: signal does not beat baseline)
 
     return alerts
 
@@ -184,7 +171,7 @@ def api_status():
     btc_mvrv = _safe_result(f_btc_mvrv, None)
     funding_rate = _safe_result(f_funding, None)
     halving = _get_halving_cycle()
-    alerts = _evaluate_alerts(prices, funding_rate, eth_mvrv)
+    alerts = _evaluate_alerts(prices, funding_rate)
 
     return {
         "prices": prices,

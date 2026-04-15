@@ -23,6 +23,8 @@ Todas estas senales se probaron y DESTRUYEN o NO MEJORAN el retorno vs hold DCA:
 | SMA/RSI/Bollinger Bands | Ninguno supera buy & hold | engine.py backtests |
 | BTC MVRV < 1.0 como compra | delta=-17.2pp a 30d, WR=31%, OOS delta=-10.4pp (WR=0%). DESCARTADO. | btc_mvrv_research |
 | BTC MVRV < 0.8 como compra | delta=-4.3pp a 30d, WR=73% (ilusion), N=11. DESCARTADO. | btc_mvrv_research |
+| ETH MVRV < 0.8 como compra | delta=-2.6pp a 30d, N=89 (cooldown 7d) / -2.7pp N=536 (no cooldown). DESCARTADO. | eth_mvrv_research (Research 13) |
+| ETH MVRV 0.8-1.0 como compra | delta=-6.9pp a 30d, N=89, p=0.596. DESCARTADO. | eth_mvrv_research (Research 13) |
 | ETH/BTC percentil 10 | p>0.70 en todos los horizontes, OOS negativo | eth_btc_ratio_research |
 | DXY_5d <= -2% (buy BTC 7d)   | N_OOS=4 insuficiente, solo 6 eventos en 11 anos (DTWEXBGS) | dxy_btc_correlation_research |
 | DXY_10d <= -1.5% (buy BTC 14d) | p_IS=0.488, delta ~0 a 3/7/14d, edge a 30d dominado por drift | dxy_btc_correlation_research |
@@ -235,4 +237,59 @@ N=79 (IS=62, OOS=17).
 - N_OOS OK en ambos casos (52 y 16) pero el signo del edge ya esta en contra desde IS, por lo que ningun ajuste de umbral salvaria la senal.
 
 **DISCARD.** No implementar alerta en ninguna direccion. El basis 3m puede seguir siendo util como **indicador de stress contextual** en el digest semanal (informativo, no accionable) pero no como trigger de compra/venta automatica. No tocar thresholds de produccion (btc_crash, sp500_crash, dca_out) -- ninguna interaccion con term structure justifica cambios.
+
+---
+
+## Research 13: ETH MVRV como senal de compra (2026-04)
+
+Script: `research/archive/eth_mvrv_research.py`
+Cache: `data/research_cache/eth_mvrv_results.txt`
+
+Motivacion: cerrar deuda metodologica. Las alertas `mvrv_critical` (ETH MVRV < 0.8) y `mvrv_low` (0.8-1.0) estaban en produccion desde el inicio del proyecto basadas en el analisis de `exit_strategy_research.py`, pero ese script media solo forward returns + win rate (sin IS/OOS, sin Mann-Whitney, sin bootstrap). La metodologia actual del repo (Research 6, 8, 11, 12) exige el tratamiento completo.
+
+Setup: CoinMetrics ETH MVRV + PriceUSD, 2015-08-08 a 2026-04-01 (3,889 dias). Split IS <2022-01-01 / OOS >=2022-01-01. Cooldown 7d (matches COOLDOWN_MVRV=168h de produccion). Bootstrap N=10.000. Horizontes 7d/14d/30d.
+
+**Resultados principales (30d, el horizonte natural para una senal multi-semanal):**
+
+| Threshold | N | N_IS | N_OOS | Delta 30d | p_30 | WR_30 | IS_30 | OOS_30 | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| critical <0.8 | 89 | 73 | 16 | **-2.6pp** | 0.149 | 58% | +8.4% | +19.5% | DISCARD |
+| low 0.8-1.0 | 89 | 41 | 48 | **-6.9pp** | 0.596 | 55% | +12.0% | +1.3% | DISCARD |
+| undervalued <1.0 | 156 | 103 | 53 | **-5.5pp** | 0.410 | 58% | +9.1% | +4.7% | DISCARD |
+| explore <0.9 | 116 | 83 | 33 | -2.9pp | 0.134 | 57% | +8.5% | +14.2% | DISCARD |
+| explore <1.1 | 208 | 119 | 89 | -7.2pp | 0.653 | 56% | +6.6% | +5.3% | DISCARD |
+| explore <1.2 | 272 | 136 | 136 | -9.3pp | 0.905 | 53% | +6.3% | +2.2% | DISCARD |
+
+**Verificacion sin cooldown (N grande, reproduce el metodo legacy):**
+
+| Signal | N | mean 30d | WR | Baseline | Delta |
+|---|---|---|---|---|---|
+| Baseline todos los dias | 3,868 | +12.9% | 53% | - | - |
+| MVRV < 0.8 | 536 | +10.2% | 61% | +12.9% | **-2.7pp** |
+| MVRV 0.8-1.0 | 469 | +7.7% | 57% | +12.9% | **-5.2pp** |
+| MVRV < 1.0 | 1,005 | +9.0% | 60% | +12.9% | **-3.9pp** |
+
+**Hallazgos clave:**
+
+1. **La senal no bate baseline.** Con o sin cooldown, con threshold estricto o permisivo, comprar ETH cuando MVRV esta bajo rinde **menos que comprar ETH un dia cualquiera**. El delta es negativo en todos los horizontes largos (7d / 14d / 30d).
+
+2. **La senal no esta equivocada en direccion**, solo en magnitud. MVRV<0.8 tiene mayor WR (61% vs baseline 53%) y retornos absolutos positivos (+10.2% a 30d). Pero el baseline ETH esta dominado por el bull market estructural (+12.9% a 30d), asi que filtrar por MVRV bajo REDUCE el retorno esperado.
+
+3. **Mismo patron que BTC MVRV<1.0** (Research 7 descartado previamente). ETH MVRV es menos catastrofico (-2.6pp vs -17.2pp en BTC) pero falla por la misma razon estructural: MVRV bajo corresponde a bear markets prolongados que no son suelos instantaneos.
+
+4. **La claim historica ("+34% 30d / 89% WR") de `exit_strategy_research.py` no se reproduce** con el dataset actual. Probablemente correspondia a un periodo mas corto o con solapamiento masivo (sin cooldown, con signals contiguos en el mismo bear market que inflaban WR). El metodo legacy es insuficiente para senales de baja frecuencia.
+
+5. **OOS=+19.5% para critical <0.8 no salva la senal.** Ese numero proviene de N_OOS=16 eventos casi todos clusterizados en el bottom de 2022-2023, donde cualquier compra post-bottom recuperaria. El baseline OOS en ese mismo periodo es mucho mayor porque ETH subio fuerte en 2023-2025.
+
+**Accion tomada (2026-04-15):**
+
+- Eliminadas alertas `mvrv_critical` y `mvrv_low` de `alerts/discord_bot.py`
+- Eliminadas constantes `ETH_MVRV_CRITICAL`, `ETH_MVRV_LOW`, `COOLDOWN_MVRV`
+- Eliminados tests `test_eth_mvrv_critical`, `test_eth_mvrv_low`
+- Eliminada evaluacion de MVRV en `dashboard/app.py:_evaluate_alerts()`
+- Eliminada mencion en `cli/commands_ops.py` (cmd_check imprime MVRV como info, no como accion)
+- Digest semanal sigue mostrando ETH MVRV como **campo informativo** (sin threshold-based signals_lines)
+- Script movido a `research/archive/eth_mvrv_research.py`
+
+**DESCARTADO. ETH MVRV es indicador de valoracion relativa pero no tiene edge accionable.**
 

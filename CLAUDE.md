@@ -19,12 +19,10 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 | Alert type (DB)        | Condicion                                  | Accion               | Severidad | Dedup |
 |------------------------|--------------------------------------------|----------------------|-----------|-------|
 | btc_crash              | BTC cae >15% en 24h                       | Compra 100-150 EUR   | red       | 6h    |
-| funding_negative       | Funding rate < -0.01%                      | Compra 100 EUR BTC   | orange    | 24h   |
-| mvrv_critical          | ETH MVRV < 0.8                            | Compra 100 EUR ETH   | red       | 7d    |
-| mvrv_low               | ETH MVRV 0.8-1.0                          | Aumentar Sparplan ETH| yellow    | 7d    |
+| funding_negative       | Funding rate < -0.01% (Research 12 valid.) | Compra 100 EUR BTC   | orange    | 24h   |
 | sp500_crash            | S&P500 cae >7% en 5 dias (FRED)           | Compra extra BTC+ETF | orange    | 7d    |
 | btc_dca_out_Xk         | BTC >= $80k (+$20k steps)                 | Vender 3% BTC en TR  | orange    | 30d   |
-| eth_dca_out_Xk         | ETH >= $3k (+$1k steps)                   | Vender 3% ETH en TR  | orange    | 30d   |
+| eth_dca_out_Xk         | ETH >= $3k (+$1k steps) (Research 14 valid.) | Vender 3% ETH en TR  | orange    | 30d   |
 | dead_canary            | Sin heartbeat en >10h (check caido)       | Verificar GH Actions | red       | 6h    |
 | rebalance_drift_ASSET  | Drift >10pp vs target (cmd drift-check)   | Rebalancear cartera  | orange    | 7d    |
 | tax_headroom_low       | Margen IRPF < threshold (cmd local)       | Revisar antes DCA-out| yellow    | 7d    |
@@ -36,7 +34,8 @@ Stack: Python 3.12 (NO usar 3.14, incompatible con dependencias), FastAPI, panda
 - S&P500: FRED serie SP500 (CSV publico, sin API key, CI-safe). NO usar yfinance ni Stooq en alerts/CI.
 - Fear & Greed: NO usar como senal (validado que no funciona)
 - MVRV alto (BTC o ETH): NO es senal de venta (momentum continua en ciclos modernos)
-- BTC MVRV < 1.0: NO es senal de compra (backtest: delta=-17.2pp, OOS WR=0%). Solo informativo en digest.
+- BTC MVRV < 1.0: NO es senal de compra (research7: delta=-17.2pp, OOS WR=0%). Solo informativo en digest.
+- ETH MVRV < 1.0: NO es senal de compra (research13: delta 30d=-2.6pp, N=89 cooldown 7d; mismo patron que BTC MVRV). Solo informativo en digest. Alertas `mvrv_critical` y `mvrv_low` eliminadas 2026-04.
 - DCA-out activo: alertas Discord ya implementadas
 - Rebalanceo: manual 1x/ano cuando BTC o ETH deriva >10pp del target. `drift-check` avisa automaticamente.
 - Dead canary: heartbeat logueado en alert_log al final de cada check. Si gap >10h -> alerta red a Discord.
@@ -72,7 +71,7 @@ py -3.12 -m venv .venv
 ## Comandos utiles
 
 ```bash
-python main.py check [--notify]        # Check senales (BTC/ETH/MVRV/funding/halving)
+python main.py check [--notify]        # Check senales (BTC crash/funding/SP500/DCA-out)
 python main.py digest [--notify]       # Digest semanal Discord (cooldown 6d)
 python main.py drift-check [--notify]  # Drift cartera vs targets Sparplan (LOCAL, yfinance)
 python main.py db-cleanup [--keep-days 90]  # Purgar alert_log viejos (default: conservar 90d)

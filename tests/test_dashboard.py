@@ -269,7 +269,7 @@ def test_api_snapshots_sorted_by_date(client_with_session):
 def test_api_alerts_filter_by_type(client_with_session):
     c, session = client_with_session
     _insert_alert(session, "btc_crash", "red")
-    _insert_alert(session, "mvrv_critical", "red")
+    _insert_alert(session, "funding_negative", "orange")
 
     data = c.get("/api/alerts?alert_type=btc_crash").json()
     assert len(data) == 1
@@ -382,14 +382,14 @@ def test_api_alerts_heatmap_groups_by_day_and_type(client_with_session):
     # Two alerts of the same type on the same day
     _insert_alert(session, "btc_crash", "red")
     _insert_alert(session, "btc_crash", "red")
-    _insert_alert(session, "mvrv_critical", "red")
+    _insert_alert(session, "funding_negative", "orange")
 
     data = c.get("/api/alerts_heatmap").json()
     cells_by_type = {cell["type"]: cell for cell in data["cells"]}
     assert "btc_crash" in cells_by_type
     assert cells_by_type["btc_crash"]["count"] == 2
-    assert "mvrv_critical" in cells_by_type
-    assert cells_by_type["mvrv_critical"]["count"] == 1
+    assert "funding_negative" in cells_by_type
+    assert cells_by_type["funding_negative"]["count"] == 1
 
 
 def test_api_alerts_heatmap_excludes_heartbeats(client_with_session):
@@ -519,19 +519,19 @@ def test_api_alerts_heatmap_days_param_excludes_old_alerts(client_with_session):
     c, session = client_with_session
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     _insert_alert(session, "btc_crash", "red", timestamp=now)
-    _insert_alert(session, "mvrv_critical", "red", timestamp=now - timedelta(days=60))
+    _insert_alert(session, "funding_negative", "orange", timestamp=now - timedelta(days=60))
 
     # Default days=30 -> only recent alert
     data_30 = c.get("/api/alerts_heatmap?days=30").json()
     types_30 = {cell["type"] for cell in data_30["cells"]}
     assert "btc_crash" in types_30
-    assert "mvrv_critical" not in types_30
+    assert "funding_negative" not in types_30
 
     # days=90 -> both alerts
     data_90 = c.get("/api/alerts_heatmap?days=90").json()
     types_90 = {cell["type"] for cell in data_90["cells"]}
     assert "btc_crash" in types_90
-    assert "mvrv_critical" in types_90
+    assert "funding_negative" in types_90
 
 
 def test_api_alerts_heatmap_multi_day_distinct_cells(client_with_session):

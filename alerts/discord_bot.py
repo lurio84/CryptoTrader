@@ -8,7 +8,7 @@ from sqlalchemy import select, func
 
 from config.settings import settings
 from data.database import init_db, get_session
-from data.market_data import fetch_prices, fetch_mvrv, fetch_funding_rate, fetch_sp500_change
+from data.market_data import fetch_prices, fetch_funding_rate, fetch_sp500_change
 from data.models import AlertLog
 
 logger = logging.getLogger(__name__)
@@ -20,9 +20,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 BTC_CRASH_THRESHOLD    = -15      # % drop in 24h that triggers crash alert
-FUNDING_RATE_THRESHOLD = -0.0001  # -0.01% -- shorts paying longs (bullish)
-ETH_MVRV_CRITICAL      = 0.8     # ETH MVRV below this = strong buy (red)
-ETH_MVRV_LOW           = 1.0     # ETH MVRV below this = buy zone (yellow)
+FUNDING_RATE_THRESHOLD = -0.0001  # -0.01% validated research12: N=127, p<0.001, OOS +2.5% @7d
+# ETH MVRV: DISCARDED as buy signal in research13 (2026-04). Delta 30d = -2.6pp
+# (N=89, cooldown 7d) and -2.7pp (N=536, no cooldown) vs baseline. Same pattern
+# as BTC MVRV<1.0 (research7). Signal is positive in absolute terms but does not
+# beat baseline under IS/OOS + Mann-Whitney methodology. See RESEARCH_ARCHIVE.md.
 # BTC MVRV: shown as informational in weekly digest only.
 # DISCARDED as buy signal: research7 found delta=-17.2pp at 30d, OOS WR=0% (btc_mvrv_research.py).
 
@@ -46,7 +48,6 @@ ETH_DCA_OUT_PCT  = 3
 # Cooldown hours per alert type (deduplication window)
 COOLDOWN_BTC_CRASH  = 6
 COOLDOWN_FUNDING    = 24
-COOLDOWN_MVRV       = 168   # 7 days
 COOLDOWN_SP500      = 168   # 7 days
 COOLDOWN_DCA_OUT    = 720   # 30 days
 
@@ -84,8 +85,6 @@ def _format_embed(alert_type: str, severity: str, details: dict) -> dict:
         fields.append({"name": "ETH Price", "value": eth_val, "inline": True})
     if details.get("funding_rate") is not None:
         fields.append({"name": "Funding Rate", "value": "{:.4f}%".format(details["funding_rate"] * 100), "inline": True})
-    if details.get("mvrv") is not None:
-        fields.append({"name": "ETH MVRV", "value": "{:.3f}".format(details["mvrv"]), "inline": True})
     if details.get("btc_mvrv") is not None:
         fields.append({"name": "BTC MVRV", "value": "{:.3f}".format(details["btc_mvrv"]), "inline": True})
     if details.get("sp500_change") is not None:
@@ -219,7 +218,6 @@ def check_and_alert(prices: dict | None = None) -> list[dict]:
     if prices is None:
         prices = fetch_prices()
     funding_rate = fetch_funding_rate()
-    eth_mvrv = fetch_mvrv("eth")
     sp500_change = fetch_sp500_change()
 
     btc_price = prices.get("btc_price")
@@ -264,34 +262,16 @@ def check_and_alert(prices: dict | None = None) -> list[dict]:
             if not _already_alerted(session, alert_type, hours=COOLDOWN_FUNDING):
                 details = {
                     "btc_price": btc_price, "funding_rate": funding_rate, "eth_price": eth_price,
-                    "recommendation": "Shorts paying longs (88% win rate historically). Buy extra 100 EUR of BTC.",
+                    "recommendation": "Shorts paying longs (67% win rate 7d, +3.7pp edge, research12). Buy extra 100 EUR of BTC.",
                 }
                 sent = send_discord_message(_format_embed("Negative BTC Funding Rate", "orange", details))
                 _log_alert(session, alert_type, "orange", btc_price, eth_price, funding_rate, sent)
                 triggered.append({"type": alert_type, "severity": "orange", "sent": sent})
 
-        # Signal 3: ETH MVRV
-        if eth_mvrv is not None:
-            if eth_mvrv < ETH_MVRV_CRITICAL:
-                alert_type = "mvrv_critical"
-                if not _already_alerted(session, alert_type, hours=COOLDOWN_MVRV):
-                    details = {
-                        "btc_price": btc_price, "eth_price": eth_price, "mvrv": eth_mvrv,
-                        "recommendation": "ETH muy infravalorado (61% win rate, +10.1% avg a 30d, re-validado 2018-2026). Aumenta el Sparplan de ETH lo que puedas permitirte este mes, luego resetea a 2 EUR (0 fees).",
-                    }
-                    sent = send_discord_message(_format_embed("ETH MVRV Critical (< 0.8)", "red", details))
-                    _log_alert(session, alert_type, "red", btc_price, eth_price, eth_mvrv, sent)
-                    triggered.append({"type": alert_type, "severity": "red", "sent": sent})
-            elif eth_mvrv < ETH_MVRV_LOW:
-                alert_type = "mvrv_low"
-                if not _already_alerted(session, alert_type, hours=COOLDOWN_MVRV):
-                    details = {
-                        "btc_price": btc_price, "eth_price": eth_price, "mvrv": eth_mvrv,
-                        "recommendation": "ETH en zona infravalorada (54% win rate, +6.3% avg a 30d, re-validado 2018-2026). Considera aumentar el Sparplan de ETH lo que puedas permitirte este mes, luego resetea a 2 EUR (0 fees).",
-                    }
-                    sent = send_discord_message(_format_embed("ETH MVRV Low (< 1.0)", "yellow", details))
-                    _log_alert(session, alert_type, "yellow", btc_price, eth_price, eth_mvrv, sent)
-                    triggered.append({"type": alert_type, "severity": "yellow", "sent": sent})
+        # Signal 3 (ETH MVRV) removed 2026-04: research13 showed signal does not
+        # beat baseline (delta 30d=-2.6pp, N=89 cooldown 7d). Same pattern as
+        # BTC MVRV<1.0 (research7). See RESEARCH_ARCHIVE.md Research 13.
+        # ETH MVRV is still shown as informational field in weekly digest.
 
         # Signal 4: S&P 500 crash -- buy BTC/ETF during broad market panic
         # Validated in research6: -5% over 5 trading days, N=31, consistent edge
@@ -330,7 +310,7 @@ def check_and_alert(prices: dict | None = None) -> list[dict]:
         _check_dca_out(
             session, "eth", eth_price, prices, btc_price, eth_price,
             ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP, ETH_DCA_OUT_MAX,
-            extra_details={"mvrv": eth_mvrv},
+            extra_details={},
             recommendation_fn=lambda n, lvl, eur: (
                 "DCA-out nivel {:d} (${:,.0f}): vende el {}% de tu ETH en Trade Republic. "
                 "Precio aprox: {:,.0f} EUR. "
