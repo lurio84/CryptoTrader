@@ -78,7 +78,7 @@ def main() -> None:
         "btc", "eth",
         "sp500", "semiconductors", "realty_income", "uranium",
     ]
-    _trade_sources = ["sparplan", "crash_buy", "mvrv_buy", "dca_out", "rebalance", "manual"]
+    _trade_sources = ["sparplan", "crash_buy", "funding_buy", "sp500_crash_buy", "dca_out", "rebalance", "manual"]
 
     p_buy = port_sub.add_parser("add-buy", help="Register a buy trade")
     p_buy.add_argument("--asset", required=True, choices=_all_assets,

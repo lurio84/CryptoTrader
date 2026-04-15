@@ -377,7 +377,7 @@ def csv_to_trades(filepath: str) -> list[dict]:
     """
     _VALID_ASSETS  = {"BTC", "ETH", "SP500", "SEMICONDUCTORS", "REALTY_INCOME", "URANIUM"}
     _VALID_SIDES   = {"buy", "sell"}
-    _VALID_SOURCES = {"sparplan", "crash_buy", "mvrv_buy", "dca_out", "rebalance", "manual"}
+    _VALID_SOURCES = {"sparplan", "crash_buy", "funding_buy", "sp500_crash_buy", "dca_out", "rebalance", "manual"}
 
     trades = []
     with open(filepath, newline="", encoding="utf-8") as f:

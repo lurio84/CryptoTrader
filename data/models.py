@@ -159,7 +159,7 @@ class UserTrade(Base):
     price_eur = Column(Float, nullable=False)          # Price in EUR at time of trade
     fee_eur = Column(Float, nullable=False, default=0.0)  # Fee in EUR (0 for Sparplan, 1 for manual TR)
     source = Column(String, nullable=False, default="manual")
-    # Source options: sparplan | crash_buy | mvrv_buy | dca_out | rebalance | manual
+    # Source options: sparplan | crash_buy | funding_buy | sp500_crash_buy | dca_out | rebalance | manual
     notes = Column(String, nullable=True)              # Free-form comment
     created_at = Column(DateTime, nullable=False, default=func.now())
 

@@ -153,8 +153,12 @@ def fetch_mvrv(asset: str) -> float | None:
         asset: "btc" or "eth"
 
     Returns float MVRV value, or None on failure.
-    Note: BTC MVRV is informativo only -- validated in research3/5 that high
-    MVRV predicts HIGHER returns, not lower. Not a sell signal.
+    Note: MVRV is informational only in this codebase.
+      - BTC MVRV as sell signal: research3/5 showed high MVRV predicts HIGHER
+        returns (momentum). Not a sell signal.
+      - BTC MVRV as buy signal: research7 showed delta=-17.2pp at 30d. Not a buy signal.
+      - ETH MVRV as buy signal: research13 showed delta 30d = -2.6pp vs baseline. Not a buy signal.
+    Still fetched because digest/dashboard/cmd_check show it as a reference metric.
     """
     try:
         resp = _get_with_retry(

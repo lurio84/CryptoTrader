@@ -132,7 +132,6 @@ def index(request: Request):
         "fear_greed_value": None,
         "fear_greed_label": "Loading",
         "funding_rate": "...",
-        "mvrv": "...",
         "active_alerts": [],
         "alert_history": alert_history,
         "dca_btc": "8 EUR/week",
