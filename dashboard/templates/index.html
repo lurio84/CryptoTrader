@@ -416,7 +416,7 @@
             </div>
 
             <div class="metric-card">
-                <div class="metric-label">ETH MVRV</div>
+                <div class="metric-label">ETH MVRV <span style="font-size:10px;color:#52525b">(info)</span></div>
                 <div class="metric-value muted" id="eth-mvrv-value">...</div>
                 <div class="metric-sub muted" id="eth-mvrv-sub">Market / Realized</div>
                 <div class="threshold-bar"><div class="threshold-fill fill-blue" id="eth-mvrv-bar" style="width: 0%"></div></div>
@@ -493,14 +493,6 @@
                     <div class="threshold-item">
                         <span>BTC Funding &lt; -0.01%</span>
                         <span class="threshold-status status-ok" id="th-funding">...</span>
-                    </div>
-                    <div class="threshold-item">
-                        <span>ETH MVRV &lt; 1.0</span>
-                        <span class="threshold-status status-ok" id="th-mvrv1">...</span>
-                    </div>
-                    <div class="threshold-item">
-                        <span>ETH MVRV &lt; 0.8</span>
-                        <span class="threshold-status status-ok" id="th-mvrv08">...</span>
                     </div>
                 </div>
             </div>
@@ -584,7 +576,8 @@
     }
 
     function mvrvLabel(v, asset) {
-        if (v < 1.0) return asset + " infravalorado";
+        // Informativo solo (research7/13 descartaron MVRV como senal accionable)
+        if (v < 1.0) return asset + " MVRV bajo (info)";
         if (v < 2.0) return asset + " rango normal";
         if (v < 3.0) return asset + " zona caliente";
         return asset + " muy caliente (historicamente raro)";
@@ -732,13 +725,6 @@
                     var s2 = document.getElementById("th-funding");
                     if (d.funding_rate < -0.0001) { s2.textContent = "ACTIVE"; s2.className = "threshold-status status-active"; }
                     else { s2.textContent = "OK"; s2.className = "threshold-status status-ok"; }
-                }
-                if (d.eth_mvrv !== null && d.eth_mvrv !== undefined) {
-                    var s3 = document.getElementById("th-mvrv1");
-                    var s4 = document.getElementById("th-mvrv08");
-                    if (d.eth_mvrv < 0.8) { s3.textContent = "ACTIVE"; s3.className = "threshold-status status-active"; s4.textContent = "ACTIVE"; s4.className = "threshold-status status-active"; }
-                    else if (d.eth_mvrv < 1.0) { s3.textContent = "WATCH"; s3.className = "threshold-status status-watch"; s4.textContent = "OK"; s4.className = "threshold-status status-ok"; }
-                    else { s3.textContent = "OK"; s3.className = "threshold-status status-ok"; s4.textContent = "OK"; s4.className = "threshold-status status-ok"; }
                 }
 
                 // Update time

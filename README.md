@@ -13,7 +13,7 @@ Personal investment advisor that monitors BTC and ETH signals and sends Discord 
 **Extra buy alerts (0 EUR fees via Sparplan boost, 2-5 times/year)**
 - BTC crash >15% in 24h → buy extra BTC (what you can afford)
 - BTC funding rate very negative (<-0.01%) → buy extra BTC
-- ETH MVRV < 0.8 → increase ETH Sparplan for next execution, then reset
+- S&P 500 crash -7% over 5 trading days → buy extra BTC + S&P 500 ETF
 
 **DCA-out alerts (systematic profit-taking, 1 EUR fee per sale)**
 - BTC >= $80k: sell 3% of BTC holdings every +$20k (cooldown 30d per level)
@@ -23,22 +23,25 @@ Personal investment advisor that monitors BTC and ETH signals and sends Discord 
 - Rebalance if BTC or ETH drifts >10% above target allocation
 - Backtest: +209% vs +164% no-rebalance over 8 years, Calmar ratio 0.39 vs 0.23
 
-## Key Research Findings (re-validated April 2026)
+## Key Research Findings (formal IS/OOS methodology, April 2026)
 
-| Signal | Return | Win Rate | Confidence |
-|--------|--------|----------|------------|
-| ETH MVRV < 0.8 (buy) | +10.1% at 30d vs +4.2% baseline | 61% | Medium-High |
-| ETH MVRV 0.8-1.0 (buy) | +6.3% at 30d vs +4.2% baseline | 54% | Medium |
-| BTC crash >15% (buy) | +10.6% at 7d vs +0.8% baseline | 50% | Low (N=4) |
-| BTC funding <-0.01% (buy) | +23% at 30d, 88% win rate | Medium | (no free historical data) |
-| DCA-out systematic (sell) | +115pp after-tax vs hold | Medium | (in-sample, 1 cycle) |
-| Annual rebalancing | +45pp vs no-rebalance, -18pp drawdown | High | (N=9 cycles) |
+All production signals validated via IS/OOS split + Mann-Whitney U + bootstrap CI (N=10,000).
+See `RESEARCH_ACTIVE.md` for full results per signal.
 
-**Signals tested and discarded:** Fear & Greed Index, SMA/RSI/Bollinger, ETH/BTC MVRV as sell signal, MA ratio as sell signal, RSI weekly overbought, NVT ratio, halving timing. Common pattern: overbought metrics in crypto predict *continuation*, not reversal.
+| Signal | Research | Edge | Notes |
+|--------|----------|------|-------|
+| BTC crash <=-15% 24h (buy) | Research 8 | +10.6pp delta 7d, p=0.020, N=13 | RED, MAINTAIN |
+| BTC funding <-0.01% (buy) | Research 12 | +3.7pp delta 7d, p<0.001, OOS +2.5%, WR 67% | RED, validated 2026-04 |
+| S&P 500 <-7% 5d (buy) | Research 6 | +6.1% at 4w, p=0.003, N=13 | RED, active |
+| BTC DCA-out systematic (sell) | Research 3 + 4 | +115pp after-tax vs hold | Simulation, 1 cycle |
+| ETH DCA-out systematic (sell) | Research 14 | +45% after-tax (+5.35pp CAGR) | Validated 2026-04 |
+| Annual rebalancing | Research 1 | +45pp vs no-rebalance, -18pp drawdown | High, 9 cycles |
+
+**Signals tested and discarded:** Fear & Greed Index, SMA/RSI/Bollinger, ETH/BTC MVRV as buy/sell signal (Research 7, 13), MA ratio as sell signal, RSI weekly overbought, NVT ratio, halving timing, DXY/BTC correlation, stablecoin dominance, term structure basis. Common pattern: momentum/valuation extremes in crypto predict *continuation*, not reversal. See `RESEARCH_ARCHIVE.md`.
 
 ## Simulated Plan Performance (2020-2026)
 
-Full plan simulation with all signals and 7-day MVRV cooldown:
+Full plan simulation with validated signals:
 - Invested: **6,120 EUR** | Portfolio: **33,328 EUR** | Return: **+445%** | CAGR: ~31%/yr
 - Sparplan only (no alerts): 3,270 EUR → 7,917 EUR (+142%)
 
@@ -73,14 +76,15 @@ Setup:
 
 ## Active Alerts
 
-| Alert | Condition | Action | Cooldown |
-|-------|-----------|--------|----------|
-| BTC Crash | BTC drops >15% in 24h | Buy extra BTC | 6h |
-| Funding Negative | BTC funding < -0.01% | Buy extra BTC | 24h |
-| ETH MVRV Critical | ETH MVRV < 0.8 | Increase ETH Sparplan | 7d |
-| ETH MVRV Low | ETH MVRV 0.8-1.0 | Consider increasing ETH Sparplan | 7d |
-| BTC DCA-out | BTC >= $80k (+$20k steps) | Sell 3% BTC holdings | 30d/level |
-| ETH DCA-out | ETH >= $3k (+$1k steps) | Sell 3% ETH holdings | 30d/level |
+| Alert | Condition | Action | Cooldown | Research |
+|-------|-----------|--------|----------|----------|
+| BTC Crash | BTC drops >15% in 24h | Buy extra BTC | 6h | R8 |
+| Funding Negative | BTC funding < -0.01% | Buy extra BTC | 24h | R12 |
+| S&P 500 Crash | S&P500 <=-7% in 5d | Buy extra BTC + SP500 ETF | 7d | R6 |
+| BTC DCA-out | BTC >= $80k (+$20k steps) | Sell 3% BTC holdings | 30d/level | R3 |
+| ETH DCA-out | ETH >= $3k (+$1k steps) | Sell 3% ETH holdings | 30d/level | R14 |
+| Rebalance Drift | Asset drifts >10pp from target | Rebalance portfolio | 7d | R1 |
+| Dead Canary | No heartbeat in >10h | Check GitHub Actions | 6h | infra |
 
 ## Data Sources (all free, no API key needed)
 
@@ -88,7 +92,8 @@ Setup:
 |--------|------|
 | CoinGecko | BTC/ETH live prices (USD + EUR) |
 | OKX | BTC funding rate (live) |
-| CoinMetrics | ETH MVRV ratio |
+| CoinMetrics | ETH + BTC MVRV ratio (informational only, see Research 13) |
+| FRED | S&P 500 daily (crash detection) |
 | alternative.me | Fear & Greed Index |
 
 ## Project Structure

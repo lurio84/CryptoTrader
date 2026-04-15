@@ -2,8 +2,18 @@
 =======================
 Six analyses to validate buy signals and decide whether exit/rebalancing rules add value:
 
+  IMPORTANT (2026-04): The "ETH MVRV low" validation in Analysis 0 uses
+  legacy methodology (forward returns + win rate only, no IS/OOS, no
+  Mann-Whitney, no bootstrap, no cooldown). Under the current repo
+  methodology (Research 13, see RESEARCH_ARCHIVE.md), the signal FAILS
+  (delta 30d=-2.6pp cooldown=7d, -2.7pp no cooldown). The "+34% 30d /
+  89% win" numbers in this script are not reproducible and were likely
+  an artifact of contiguous signals without cooldown. Alerts
+  mvrv_critical and mvrv_low were removed from production 2026-04-15.
+
   0. Validation of existing buy signals (BTC crash, ETH MVRV low)
      Re-validates documented signals against historical data. Confirms or flags discrepancies.
+     NOTE: ETH MVRV portion is LEGACY; see Research 13 for formal DISCARD verdict.
 
   1. Portfolio rebalancing by % threshold (2018-2026)
      Does trimming over-weight crypto back to target improve risk-adjusted returns?
