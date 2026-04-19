@@ -361,7 +361,7 @@ def send_weekly_digest() -> bool:
     if sp500_change is not None:
         gap_sp500 = sp500_change - SP500_CRASH_THRESHOLD
         if gap_sp500 > 0:
-            signals_lines.append("S&P500: -{:.1f}pp para umbral -5% (actual {:+.1f}% 5d)".format(gap_sp500, sp500_change))
+            signals_lines.append("S&P500: -{:.1f}pp para umbral -7% (actual {:+.1f}% 5d)".format(gap_sp500, sp500_change))
         else:
             signals_lines.append("S&P500: umbral CRASH alcanzado ({:+.1f}% 5d)".format(sp500_change))
 

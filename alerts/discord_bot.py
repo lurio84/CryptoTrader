@@ -274,7 +274,7 @@ def check_and_alert(prices: dict | None = None) -> list[dict]:
         # ETH MVRV is still shown as informational field in weekly digest.
 
         # Signal 4: S&P 500 crash -- buy BTC/ETF during broad market panic
-        # Validated in research6: -5% over 5 trading days, N=31, consistent edge
+        # Validated in research6: -7% over 5 trading days, N=13, p=0.003 at 4w
         if sp500_change is not None and sp500_change <= SP500_CRASH_THRESHOLD:
             alert_type = "sp500_crash"
             if not _already_alerted(session, alert_type, hours=COOLDOWN_SP500):
