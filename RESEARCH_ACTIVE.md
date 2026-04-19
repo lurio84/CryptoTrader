@@ -199,3 +199,4 @@ Setup: simulacion 2018-01 a 2026-04, Sparplan ETH 2 EUR/semana (matches producti
 - **CDD real**: requiere datos de pago (CoinMetrics free no lo tiene)
 - **Tickers ETF UCITS**: SPY/SOXX/O/URA son proxies USD. TR usa ETFs europeos (ej. SXR8.DE)
 - **Verificar ETH stakeado TR**: confirmar si venta es inmediata o requiere unstaking
+- **Dedup funding_negative ciego a intensidad**: el cooldown de 24h no re-alerta aunque el funding empeore drasticamente (ej. -0.01% -> -0.05% al dia siguiente). Revisar si tiene sentido un threshold de re-alerta por intensidad. Requiere backtest antes de tocar produccion.
