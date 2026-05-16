@@ -61,6 +61,16 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python main.py check --notify
+      # Backup: la cache puede ser evictada (>7d inactividad o cuota 10GB).
+      # Si pasa, la DB se reconstruye vacía y los cooldowns se resetean.
+      # Subimos snapshot diario para poder restaurar manualmente si hace falta.
+      - name: Upload DB snapshot
+        if: always() && hashFiles('data/cryptotrader.db') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: cryptotrader-db-${{ github.run_id }}
+          path: data/cryptotrader.db
+          retention-days: 90
 
   weekly-digest:
     if: github.event.schedule == '0 9 * * 0'
@@ -85,6 +95,13 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python main.py digest --notify
+      - name: Upload DB snapshot
+        if: always() && hashFiles('data/cryptotrader.db') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: cryptotrader-db-${{ github.run_id }}
+          path: data/cryptotrader.db
+          retention-days: 90
 
   db-cleanup:
     if: github.event.schedule == '0 3 1 * *'
@@ -107,3 +124,10 @@ jobs:
         run: pip install -e ".[dev,dashboard]"
       - name: Cleanup old AlertLog rows
         run: python main.py db-cleanup --keep-days 90
+      - name: Upload DB snapshot
+        if: always() && hashFiles('data/cryptotrader.db') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: cryptotrader-db-${{ github.run_id }}
+          path: data/cryptotrader.db
+          retention-days: 90
