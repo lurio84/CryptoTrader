@@ -1,0 +1,7 @@
+event_id,date,description,btc_price,btc_change_24h,btc_price_eur,eth_price,eth_change_24h,eth_price_eur,funding_rate,sp500_5d,expected_alerts,forbidden_alerts
+covid_crash_2020_03_12,2020-03-12,COVID Black Thursday -- BTC -37% / SP500 -18% over 5d,4971.0,-37.17,4392.0,112.0,-42.35,99.0,0.000018,-17.97,btc_crash;sp500_crash,funding_negative;btc_dca_out_80k
+covid_funding_2020_03_13,2020-03-13,Day after COVID crash -- funding hits -0.127% (most negative in dataset),5564.0,11.93,4917.0,133.0,18.56,118.0,-0.001272,-9.46,funding_negative;sp500_crash,btc_crash;btc_dca_out_80k
+macro_crash_2022_06_13,2022-06-13,June 2022 macro contagion (post-Luna) -- BTC -16% / SP500 -9% 5d,22487.0,-15.97,21363.0,1205.0,-16.65,1145.0,0.000006,-8.93,btc_crash;sp500_crash,funding_negative;btc_dca_out_80k
+ftx_funding_2022_11_10,2022-11-10,FTX collapse aftermath -- funding -0.085% but BTC bounce +11%,17587.0,10.74,17061.0,1299.0,18.11,1260.0,-0.000850,6.38,funding_negative,btc_crash;sp500_crash;btc_dca_out_80k
+btc_dca_out_2025_05_22,2025-05-22,BTC at $111k -- DCA-out levels 80k and 100k cross,111673.28,1.82,98951.0,2664.16,4.38,2360.0,0.0001,0.5,btc_dca_out_80k;btc_dca_out_100k,btc_dca_out_120k;eth_dca_out_3k;btc_crash;funding_negative;sp500_crash
+normal_day_2021_07_15,2021-07-15,Calm summer day -- no alerts expected,31781.0,-3.17,26835.0,1911.0,-4.17,1614.0,0.0000223,0.89,,btc_crash;funding_negative;sp500_crash;btc_dca_out_80k;eth_dca_out_3k

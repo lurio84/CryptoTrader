@@ -200,3 +200,20 @@ Setup: simulacion 2018-01 a 2026-04, Sparplan ETH 2 EUR/semana (matches producti
 - **Tickers ETF UCITS**: SPY/SOXX/O/URA son proxies USD. TR usa ETFs europeos (ej. SXR8.DE)
 - **Verificar ETH stakeado TR**: confirmar si venta es inmediata o requiere unstaking
 - **Dedup funding_negative ciego a intensidad**: el cooldown de 24h no re-alerta aunque el funding empeore drasticamente (ej. -0.01% -> -0.05% al dia siguiente). Revisar si tiene sentido un threshold de re-alerta por intensidad. Requiere backtest antes de tocar produccion.
+
+---
+
+## Nota de metodologia — fees en simulaciones (audit 2026-05-16)
+
+Los engines de `backtesting/` (`engine.py`, `dca_engine.py`, `crash_dca_engine.py`) usan `settings.taker_fee_pct = 0.1%` (modelo Binance). Esos engines alimentan el CLI `backtest --strategies sma|rsi|bollinger`, hoy archivadas en `research/strategies_explored/`.
+
+NINGUNA de las cifras headline en este documento proviene de esos engines. Vienen de simulaciones en `research/*.py` que hardcodean fees Trade Republic como flat EUR:
+
+- `research/exit_strategy_research.py` -> `CRYPTO_SELL_FEE_EUR = 1.0`, `TRAD_SELL_FEE = 0.0`
+- `research/exit_signals_research3.py` y `exit_signals_research4.py` -> `SELL_FEE_EUR = 1.0`
+- `research/eth_dca_out_research.py` -> `SELL_FEE_EUR = 0.0` (TR ETH gratis)
+- `research/archive/full_plan_simulation_2020.py` -> `SPARPLAN_FEE_EUR = 0.0`, `MANUAL_BUY_FEE_EUR = 1.0`, `SELL_FEE_EUR = 1.0`
+
+Re-ejecutadas 2026-05-16: las headlines `+209% vs +164%` (rebalance), `+115pp` after-tax DCA-out, ETH DCA-out delta (`+1,324 EUR` produccion vs hold), y full plan `+434%` reproducen sobre `data/research_cache/` actual.
+
+Implicacion: el hallazgo M7 del audit (`MEDIO 7 — Discrepancia fees backtest vs realidad TR`) era correcto sobre los engines pero NO impacta las cifras headline. No se necesita un `trade_republic_mode` flag en los engines hasta que se reactive un caso de uso real con backtest pct-based en TR.

@@ -79,7 +79,7 @@ SELL_FEE_EUR          = 1.0   # venta DCA-out
 # EUR/USD aproximacion (media 2020-2026)
 EURUSD = 1.10
 
-CACHE_DIR = Path(__file__).parent.parent / "data" / "research_cache"
+CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "research_cache"
 
 # Spain IRPF 2024
 SPAIN_TAX_BRACKETS = [
