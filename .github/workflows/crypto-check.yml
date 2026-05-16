@@ -12,6 +12,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which operational job to run manually'
+        type: choice
+        options: [check, check-and-digest]
+        default: check
 
 permissions:
   contents: read
@@ -94,7 +100,7 @@ jobs:
           retention-days: 90
 
   weekly-digest:
-    if: github.event.schedule == '0 9 * * 0'
+    if: github.event.schedule == '0 9 * * 0' || (github.event_name == 'workflow_dispatch' && inputs.job == 'check-and-digest')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
