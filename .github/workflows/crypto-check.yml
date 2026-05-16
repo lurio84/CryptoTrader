@@ -8,51 +8,153 @@ on:
     - cron: '0 9 * * 0'
     # Monthly DB cleanup: 1st of each month at 03:00 UTC
     - cron: '0 3 1 * *'
-  workflow_dispatch: # Manual trigger from GitHub UI
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which operational job to run manually'
+        type: choice
+        options: [check, check-and-digest]
+        default: check
 
 permissions:
   contents: read
 
 jobs:
-  check-signals:
+  # CI: tests + lint. Runs on push, PR and manual dispatch only.
+  # MUST NOT run on cron — a broken test or lint change must never silence operational alerts.
+  quality:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: 'pip'
+      - name: Install dependencies
+        run: pip install -e ".[dev,dashboard]"
+      - name: Run tests
+        run: pytest tests/ -q
+      - name: Lint
+        # research/ excluded on purpose -- contains exploratory one-shot scripts
+        # (incl. research/strategies_explored/) where lint hygiene is not enforced.
+        run: ruff check alerts cli config data strategies backtesting dashboard analysis main.py
 
+  # Operational alerts. Independent from `quality` so broken tests never block alerts.
+  check-signals:
+    if: (github.event_name == 'schedule' && github.event.schedule == '0 */4 * * *') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
       - name: Restore alert DB cache
         uses: actions/cache@v5
         with:
           path: data/cryptotrader.db
           key: cryptotrader-db-${{ github.run_id }}
           restore-keys: cryptotrader-db-
-
       - name: Install dependencies
         run: pip install -e ".[dev,dashboard]"
-
-      - name: Run tests
-        run: pytest tests/ -q
-
-      - name: Lint
-        run: ruff check alerts cli config data strategies backtesting dashboard analysis main.py
-
       - name: Run signal check and notify
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python main.py check --notify
+      # External heartbeat: pings Healthchecks.io so an outage of GitHub
+      # Actions itself (or the repo being disabled / scheduler paused) is
+      # detected. Healthchecks.io emails me if no ping arrives within
+      # the grace period configured there. Skipped silently if the secret
+      # is not configured -- ie. the workflow works without an account.
+      - name: Heartbeat to Healthchecks.io
+        if: always()
+        env:
+          HEALTHCHECKS_UUID: ${{ secrets.HEALTHCHECKS_UUID }}
+          # Map GitHub's "Success"/"Failure"/"Cancelled" to Healthchecks'
+          # expected lowercase suffixes (success / fail). Without this mapping
+          # hc-ping would treat the URL as an unknown suffix and silently
+          # never record failures -- defeating the whole purpose.
+          STATUS: ${{ job.status == 'success' && 'success' || 'fail' }}
+        run: |
+          if [ -n "$HEALTHCHECKS_UUID" ]; then
+            curl -fsS --retry 3 --max-time 10 \
+              "https://hc-ping.com/$HEALTHCHECKS_UUID/$STATUS" || true
+          fi
+      # Backup: la cache puede ser evictada (>7d inactividad o cuota 10GB).
+      # Si pasa, la DB se reconstruye vacía y los cooldowns se resetean.
+      # Subimos snapshot diario para poder restaurar manualmente si hace falta.
+      - name: Upload DB snapshot
+        if: always() && hashFiles('data/cryptotrader.db') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: cryptotrader-db-${{ github.run_id }}
+          path: data/cryptotrader.db
+          retention-days: 90
 
-      - name: Send weekly digest (Sundays only)
-        if: github.event.schedule == '0 9 * * 0' || github.event_name == 'workflow_dispatch'
+  weekly-digest:
+    if: github.event.schedule == '0 9 * * 0' || (github.event_name == 'workflow_dispatch' && inputs.job == 'check-and-digest')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Restore alert DB cache
+        uses: actions/cache@v5
+        with:
+          path: data/cryptotrader.db
+          key: cryptotrader-db-${{ github.run_id }}
+          restore-keys: cryptotrader-db-
+      - name: Install dependencies
+        run: pip install -e ".[dev,dashboard]"
+      - name: Send weekly digest
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python main.py digest --notify
+      - name: Upload DB snapshot
+        if: always() && hashFiles('data/cryptotrader.db') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: cryptotrader-db-${{ github.run_id }}
+          path: data/cryptotrader.db
+          retention-days: 90
 
-      - name: Monthly DB cleanup (1st of each month)
-        if: github.event.schedule == '0 3 1 * *'
+  db-cleanup:
+    if: github.event.schedule == '0 3 1 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Restore alert DB cache
+        uses: actions/cache@v5
+        with:
+          path: data/cryptotrader.db
+          key: cryptotrader-db-${{ github.run_id }}
+          restore-keys: cryptotrader-db-
+      - name: Install dependencies
+        run: pip install -e ".[dev,dashboard]"
+      - name: Cleanup old AlertLog rows
         run: python main.py db-cleanup --keep-days 90
+      - name: Upload DB snapshot
+        if: always() && hashFiles('data/cryptotrader.db') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: cryptotrader-db-${{ github.run_id }}
+          path: data/cryptotrader.db
+          retention-days: 90

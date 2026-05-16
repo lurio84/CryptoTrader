@@ -112,6 +112,71 @@ def test_fetch_prices_returns_none_on_failure():
     assert result["eth_change_24h"] is None
 
 
+def test_fetch_prices_rejects_outlier_btc():
+    """BTC=$1M from CoinGecko is implausible -> fall back, then return Nones if Kraken also bad."""
+    from data.market_data import fetch_prices
+
+    bad_json = {
+        "bitcoin": {"usd": 1_000_000.0, "eur": 900_000.0, "usd_24h_change": 1.0},
+        "ethereum": {"usd": 3500.0, "eur": 3200.0, "usd_24h_change": 1.0},
+    }
+    bad_resp = _make_response(json_data=bad_json)
+
+    # CoinGecko returns outlier; Kraken also fails -> all Nones.
+    with (
+        patch("data.market_data._get_with_retry", return_value=bad_resp),
+        patch("data.market_data._fetch_kraken_prices", side_effect=Exception("kraken down")),
+    ):
+        result = fetch_prices()
+
+    assert result["btc_price"] is None
+    assert result["eth_price"] is None
+
+
+def test_fetch_prices_rejects_implausible_change_24h():
+    """change_24h = -90% is implausible (real max ~-45%) -> reject."""
+    from data.market_data import fetch_prices
+
+    bad_json = {
+        "bitcoin": {"usd": 95000.0, "eur": 87000.0, "usd_24h_change": -90.0},
+        "ethereum": {"usd": 3500.0, "eur": 3200.0, "usd_24h_change": 1.0},
+    }
+    bad_resp = _make_response(json_data=bad_json)
+
+    with (
+        patch("data.market_data._get_with_retry", return_value=bad_resp),
+        patch("data.market_data._fetch_kraken_prices", side_effect=Exception("kraken down")),
+    ):
+        result = fetch_prices()
+
+    assert result["btc_price"] is None
+    assert result["btc_change_24h"] is None
+
+
+def test_fetch_prices_falls_back_to_kraken_on_outlier():
+    """CoinGecko outlier -> Kraken returns valid data -> Kraken result used."""
+    from data.market_data import fetch_prices
+
+    bad_json = {
+        "bitcoin": {"usd": 1_000_000.0, "eur": 900_000.0, "usd_24h_change": 1.0},
+        "ethereum": {"usd": 3500.0, "eur": 3200.0, "usd_24h_change": 1.0},
+    }
+    bad_resp = _make_response(json_data=bad_json)
+    good_kraken = {
+        "btc_price": 95000.0, "btc_price_eur": 87000.0, "btc_change_24h": -1.5,
+        "eth_price": 3500.0, "eth_price_eur": 3200.0, "eth_change_24h": 0.5,
+    }
+
+    with (
+        patch("data.market_data._get_with_retry", return_value=bad_resp),
+        patch("data.market_data._fetch_kraken_prices", return_value=good_kraken),
+    ):
+        result = fetch_prices()
+
+    assert result["btc_price"] == 95000.0
+    assert result["btc_change_24h"] == -1.5
+
+
 # ---------------------------------------------------------------------------
 # fetch_mvrv
 # ---------------------------------------------------------------------------

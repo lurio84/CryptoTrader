@@ -25,6 +25,14 @@ logger = logging.getLogger(__name__)
 
 _HEADERS = {"User-Agent": "CryptoTrader/1.0 (+https://github.com/lurio84/CryptoTrader)"}
 
+# Sanity bounds for incoming price payloads. A glitch in CoinGecko/Kraken
+# returning, e.g., BTC=$1M or change_24h=-90% would cascade into a real
+# `btc_crash` Discord alert -> manual Trade Republic buy. Better to reject
+# the payload and treat the cycle as "no data" (same as a network failure).
+_BTC_PRICE_MIN, _BTC_PRICE_MAX = 10_000.0, 500_000.0
+_ETH_PRICE_MIN, _ETH_PRICE_MAX = 100.0, 20_000.0
+_CHANGE_24H_LIMIT = 50.0  # abs % bound; real BTC crashes peak around -45% in 24h
+
 
 def _get_with_retry(url: str, params: dict | None = None, timeout: int = 10, retries: int = 3) -> requests.Response:
     """HTTP GET with exponential backoff retry on transient network errors.
@@ -103,13 +111,34 @@ def _fetch_kraken_prices() -> dict:
     }
 
 
+def _validate_price_payload(d: dict) -> bool:
+    """Reject payloads where BTC/ETH prices or 24h changes fall outside plausible bounds.
+
+    A faulty upstream value would otherwise cascade into a real trading alert.
+    Treat an invalid payload exactly like a network failure: discard and try
+    the next source.
+    """
+    btc = d.get("btc_price")
+    eth = d.get("eth_price")
+    if btc is None or eth is None:
+        return False
+    if not (_BTC_PRICE_MIN <= btc <= _BTC_PRICE_MAX):
+        return False
+    if not (_ETH_PRICE_MIN <= eth <= _ETH_PRICE_MAX):
+        return False
+    for chg in (d.get("btc_change_24h"), d.get("eth_change_24h")):
+        if chg is not None and abs(chg) > _CHANGE_24H_LIMIT:
+            return False
+    return True
+
+
 def fetch_prices() -> dict:
     """Fetch BTC and ETH prices. Tries CoinGecko first, falls back to Kraken.
 
     Returns dict with keys:
         btc_price, btc_price_eur, btc_change_24h,
         eth_price, eth_price_eur, eth_change_24h
-    All values are None only if both sources fail.
+    All values are None only if both sources fail or return implausible data.
     """
     try:
         resp = _get_with_retry(
@@ -123,7 +152,7 @@ def fetch_prices() -> dict:
             retries=5,
         )
         data = resp.json()
-        return {
+        payload = {
             "btc_price":       data["bitcoin"]["usd"],
             "btc_price_eur":   data["bitcoin"]["eur"],
             "btc_change_24h":  data["bitcoin"]["usd_24h_change"],
@@ -131,19 +160,25 @@ def fetch_prices() -> dict:
             "eth_price_eur":   data["ethereum"]["eur"],
             "eth_change_24h":  data["ethereum"]["usd_24h_change"],
         }
+        if _validate_price_payload(payload):
+            return payload
+        logger.warning("CoinGecko returned implausible payload, trying Kraken fallback: %s", payload)
     except Exception as e:
         logger.warning("CoinGecko prices unavailable (%s), trying Kraken fallback", e)
 
     try:
         prices = _fetch_kraken_prices()
-        logger.info("Prices fetched from Kraken fallback")
-        return prices
+        if _validate_price_payload(prices):
+            logger.info("Prices fetched from Kraken fallback")
+            return prices
+        logger.error("Kraken returned implausible payload: %s", prices)
     except Exception as e:
         logger.error("Failed to fetch prices from CoinGecko and Kraken: %s", e)
-        return {
-            "btc_price": None, "btc_price_eur": None, "btc_change_24h": None,
-            "eth_price": None, "eth_price_eur": None, "eth_change_24h": None,
-        }
+
+    return {
+        "btc_price": None, "btc_price_eur": None, "btc_change_24h": None,
+        "eth_price": None, "eth_price_eur": None, "eth_change_24h": None,
+    }
 
 
 def fetch_mvrv(asset: str) -> float | None:

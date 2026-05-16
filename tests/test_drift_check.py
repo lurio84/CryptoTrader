@@ -158,6 +158,7 @@ def test_drift_check_discord_sent_with_notify(db_session, capsys):
         patch(_PATCHES_BASE["init_db"]),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
         patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
+        patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"),
     ):
         from cli.commands_ops import cmd_drift_check
         cmd_drift_check(_make_args(notify=True))
@@ -187,6 +188,7 @@ def test_drift_check_dedup(db_session, capsys):
         patch(_PATCHES_BASE["init_db"]),
         patch("alerts.discord_bot.send_discord_message", return_value=True),
         patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
+        patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"),
     ):
         from cli.commands_ops import cmd_drift_check
         cmd_drift_check(_make_args(notify=True))

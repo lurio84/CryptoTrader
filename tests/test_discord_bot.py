@@ -306,9 +306,14 @@ def test_weekly_digest_sends_when_no_prior(db_session):
         patch("alerts.digest.fetch_mvrv", return_value=1.5),
         patch("alerts.digest.fetch_funding_rate", return_value=0.0001),
         patch("alerts.digest.fetch_sp500_change", return_value=1.0),
+        patch("alerts.digest.fetch_price_history", return_value=None),
+        patch("alerts.digest.fetch_sp500_history", return_value=None),
         patch("alerts.digest.send_discord_message", return_value=True),
         patch("alerts.digest.init_db"),
         patch("alerts.digest.get_session", _make_session_ctx(db_session)),
+        # _get_portfolio_summary re-imports get_session locally; patch source.
+        patch("data.database.get_session", _make_session_ctx(db_session)),
+        patch("data.etf_prices.fetch_all_etf_prices_eur", return_value={}),
     ):
         from alerts.digest import send_weekly_digest
         result = send_weekly_digest()
@@ -348,9 +353,13 @@ def test_weekly_digest_handles_none_prices(db_session):
         patch("alerts.digest.fetch_mvrv", return_value=None),
         patch("alerts.digest.fetch_funding_rate", return_value=None),
         patch("alerts.digest.fetch_sp500_change", return_value=None),
+        patch("alerts.digest.fetch_price_history", return_value=None),
+        patch("alerts.digest.fetch_sp500_history", return_value=None),
         patch("alerts.digest.send_discord_message", return_value=True),
         patch("alerts.digest.init_db"),
         patch("alerts.digest.get_session", _make_session_ctx(db_session)),
+        patch("data.database.get_session", _make_session_ctx(db_session)),
+        patch("data.etf_prices.fetch_all_etf_prices_eur", return_value={}),
     ):
         from alerts.digest import send_weekly_digest
         result = send_weekly_digest()
@@ -438,3 +447,210 @@ def test_dead_canary_dedup(db_session):
     result = _run_normal_check(db_session)
 
     assert not any(a["type"] == "dead_canary" for a in result)
+
+
+# ---------------------------------------------------------------------------
+# send_discord_message -- retry + permanent error handling
+# ---------------------------------------------------------------------------
+
+def _resp(status: int, text: str = ""):
+    """Build a minimal fake requests.Response."""
+    from unittest.mock import MagicMock
+    r = MagicMock()
+    r.status_code = status
+    r.text = text
+    return r
+
+
+def test_send_succeeds_first_attempt():
+    from alerts.discord_bot import send_discord_message
+
+    with (
+        patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"),
+        patch("alerts.discord_bot.requests.post", return_value=_resp(204)) as mock_post,
+        patch("alerts.discord_bot.time.sleep") as mock_sleep,
+    ):
+        assert send_discord_message({"x": 1}) is True
+        assert mock_post.call_count == 1
+        mock_sleep.assert_not_called()
+
+
+def test_send_retries_on_5xx_then_succeeds():
+    """5xx is transient -> retry. Second attempt returns 204 -> success."""
+    from alerts.discord_bot import send_discord_message
+
+    with (
+        patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"),
+        patch(
+            "alerts.discord_bot.requests.post",
+            side_effect=[_resp(503), _resp(204)],
+        ) as mock_post,
+        patch("alerts.discord_bot.time.sleep") as mock_sleep,
+    ):
+        assert send_discord_message({"x": 1}) is True
+        assert mock_post.call_count == 2
+        mock_sleep.assert_called_once_with(1)
+
+
+def test_send_retries_on_429_rate_limit():
+    from alerts.discord_bot import send_discord_message
+
+    with (
+        patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"),
+        patch(
+            "alerts.discord_bot.requests.post",
+            side_effect=[_resp(429), _resp(429), _resp(204)],
+        ) as mock_post,
+        patch("alerts.discord_bot.time.sleep"),
+    ):
+        assert send_discord_message({"x": 1}) is True
+        assert mock_post.call_count == 3
+
+
+def test_send_does_not_retry_on_4xx_permanent():
+    """400/404 are permanent errors -> no retry, return False."""
+    from alerts.discord_bot import send_discord_message
+
+    with (
+        patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"),
+        patch(
+            "alerts.discord_bot.requests.post",
+            return_value=_resp(404, "Webhook not found"),
+        ) as mock_post,
+        patch("alerts.discord_bot.time.sleep") as mock_sleep,
+    ):
+        assert send_discord_message({"x": 1}) is False
+        assert mock_post.call_count == 1
+        mock_sleep.assert_not_called()
+
+
+def test_send_gives_up_after_max_retries():
+    """All attempts fail -> return False after max_retries attempts."""
+    from alerts.discord_bot import send_discord_message
+
+    with (
+        patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"),
+        patch("alerts.discord_bot.requests.post", return_value=_resp(503)) as mock_post,
+        patch("alerts.discord_bot.time.sleep"),
+    ):
+        assert send_discord_message({"x": 1}) is False
+        assert mock_post.call_count == 3
+
+
+def test_send_returns_false_when_webhook_empty():
+    """Empty webhook_url -> log warning + return False, NO request."""
+    from alerts.discord_bot import send_discord_message
+
+    with (
+        patch("alerts.discord_bot.settings.discord.webhook_url", ""),
+        patch("alerts.discord_bot.requests.post") as mock_post,
+    ):
+        assert send_discord_message({"x": 1}) is False
+        mock_post.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# require_webhook_configured -- fail-fast for --notify paths
+# ---------------------------------------------------------------------------
+
+def test_require_webhook_exits_when_empty():
+    """Empty webhook_url -> sys.exit(2)."""
+    import pytest
+    from alerts.discord_bot import require_webhook_configured
+
+    with patch("alerts.discord_bot.settings.discord.webhook_url", ""):
+        with pytest.raises(SystemExit) as exc:
+            require_webhook_configured()
+        assert exc.value.code == 2
+
+
+def test_require_webhook_passes_when_configured():
+    """Non-empty webhook_url -> returns silently."""
+    from alerts.discord_bot import require_webhook_configured
+
+    with patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"):
+        require_webhook_configured()
+
+
+# ---------------------------------------------------------------------------
+# _track_source_health -- consecutive-failure alerting
+# ---------------------------------------------------------------------------
+
+def _run_check_with_sources(db_session, funding=0.0, sp500=0.0):
+    """Run check_and_alert with controllable funding/sp500 (None == failure)."""
+    with (
+        patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
+        patch("alerts.discord_bot.fetch_funding_rate", return_value=funding),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=sp500),
+        patch("alerts.discord_bot.send_discord_message", return_value=True),
+        patch("alerts.discord_bot.init_db"),
+        patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
+    ):
+        from alerts.discord_bot import check_and_alert
+        return check_and_alert()
+
+
+def test_source_fail_logged_but_no_alert_below_threshold(db_session):
+    """1 failed cycle -> source_fail row, but no source_outage Discord alert."""
+    result = _run_check_with_sources(db_session, funding=None, sp500=0.0)
+
+    assert not any(a["type"].startswith("source_outage_") for a in result)
+    fail_rows = db_session.query(AlertLog).filter_by(alert_type="source_fail_funding").count()
+    assert fail_rows == 1
+
+
+def test_source_outage_triggers_after_three_consecutive_failures(db_session):
+    """3 fail rows within 12h -> source_outage_funding alert."""
+    # Seed 2 prior failures within the 12h window
+    for hours_ago in (8, 4):
+        db_session.add(AlertLog(
+            timestamp=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours_ago),
+            alert_type="source_fail_funding",
+            severity="yellow",
+            message="source_fail_funding",
+            btc_price=None, eth_price=None,
+            metric_value=0.0, notified=0,
+        ))
+    db_session.commit()
+
+    result = _run_check_with_sources(db_session, funding=None, sp500=0.0)
+
+    assert any(a["type"] == "source_outage_funding" for a in result)
+
+
+def test_source_outage_respects_cooldown(db_session):
+    """Outage already alerted within 24h cooldown -> no duplicate."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for hours_ago in (8, 4):
+        db_session.add(AlertLog(
+            timestamp=now - timedelta(hours=hours_ago),
+            alert_type="source_fail_funding",
+            severity="yellow",
+            message="source_fail_funding",
+            btc_price=None, eth_price=None,
+            metric_value=0.0, notified=0,
+        ))
+    db_session.add(AlertLog(
+        timestamp=now - timedelta(hours=2),
+        alert_type="source_outage_funding",
+        severity="yellow",
+        message="source_outage_funding",
+        btc_price=None, eth_price=None,
+        metric_value=3.0, notified=1,
+    ))
+    db_session.commit()
+
+    result = _run_check_with_sources(db_session, funding=None, sp500=0.0)
+
+    assert not any(a["type"] == "source_outage_funding" for a in result)
+
+
+def test_source_recovery_does_not_log(db_session):
+    """Healthy fetch -> no source_fail row appended."""
+    result = _run_check_with_sources(db_session, funding=0.0, sp500=0.0)
+
+    assert not any(a["type"].startswith("source_") for a in result)
+    fail_rows = db_session.query(AlertLog).filter(
+        AlertLog.alert_type.like("source_fail_%"),
+    ).count()
+    assert fail_rows == 0

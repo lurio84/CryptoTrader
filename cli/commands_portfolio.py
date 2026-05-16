@@ -699,6 +699,8 @@ def cmd_tax_headroom(args: argparse.Namespace) -> None:
     print()
 
     if getattr(args, "notify", False) and realized > 0:
+        from alerts.discord_bot import require_webhook_configured
+        require_webhook_configured()
         _maybe_notify_tax_headroom(
             args, headroom_info, realized, btc_price_eur, eth_price_eur
         )

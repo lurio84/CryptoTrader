@@ -98,7 +98,8 @@ def cmd_check(args: argparse.Namespace) -> None:
         print("    [OK] No action needed. Sparplan running as usual.")
 
     if args.notify:
-        from alerts.discord_bot import check_and_alert
+        from alerts.discord_bot import check_and_alert, require_webhook_configured
+        require_webhook_configured()
         triggered = check_and_alert(prices=prices)
         if triggered:
             sent = sum(1 for a in triggered if a.get("sent"))
@@ -113,6 +114,8 @@ def cmd_digest(args: argparse.Namespace) -> None:
     """Send weekly digest to Discord (or print preview without --notify)."""
     init_db()
     if args.notify:
+        from alerts.discord_bot import require_webhook_configured
+        require_webhook_configured()
         from alerts.digest import send_weekly_digest
         sent = send_weekly_digest()
         if sent:
@@ -258,7 +261,11 @@ def cmd_drift_check(args: argparse.Namespace) -> None:
         print("  Sin drift significativo. No se enviaron alertas.")
         return
 
-    from alerts.discord_bot import _already_alerted, _log_alert, send_discord_message, _format_embed
+    from alerts.discord_bot import (
+        _already_alerted, _log_alert, send_discord_message, _format_embed,
+        require_webhook_configured,
+    )
+    require_webhook_configured()
     btc_price = prices.get("btc_price")
     eth_price = prices.get("eth_price")
 

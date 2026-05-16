@@ -9,10 +9,14 @@ from data.database import init_db
 from data.collector import DataCollector
 
 
+# Exploratory strategies (SMA / RSI / Bollinger): validated as no-edge vs hold
+# in research 2026-Q1 and parked under `research/strategies_explored/`. The
+# `backtest` CLI command keeps working so the negative result stays reproducible.
+# See README "Signals tested and discarded".
 STRATEGIES = {
-    "sma": "strategies.sma_crossover:SMACrossover",
-    "rsi": "strategies.rsi_mean_reversion:RSIMeanReversion",
-    "bollinger": "strategies.bollinger_breakout:BollingerBreakout",
+    "sma": "research.strategies_explored.sma_crossover:SMACrossover",
+    "rsi": "research.strategies_explored.rsi_mean_reversion:RSIMeanReversion",
+    "bollinger": "research.strategies_explored.bollinger_breakout:BollingerBreakout",
 }
 
 

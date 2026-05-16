@@ -39,6 +39,8 @@ See `RESEARCH_ACTIVE.md` for full results per signal.
 
 **Signals tested and discarded:** Fear & Greed Index, SMA/RSI/Bollinger, ETH/BTC MVRV as buy/sell signal (Research 7, 13), MA ratio as sell signal, RSI weekly overbought, NVT ratio, halving timing, DXY/BTC correlation, stablecoin dominance, term structure basis. Common pattern: momentum/valuation extremes in crypto predict *continuation*, not reversal. See `RESEARCH_ARCHIVE.md`.
 
+> SMA / RSI / Bollinger code lives under `research/strategies_explored/` so the `backtest` CLI command stays reproducible without implying they are production signals.
+
 ## Simulated Plan Performance (2020-2026)
 
 Full plan simulation with validated signals:
@@ -73,6 +75,14 @@ Setup:
 1. Push this repo to GitHub
 2. Go to Settings > Secrets and variables > Actions
 3. Add secret: `DISCORD_WEBHOOK_URL` (your Discord webhook URL)
+
+Optional: external uptime monitoring with [Healthchecks.io](https://healthchecks.io/) (free) — covers the case where GitHub Actions itself is down or the workflow is disabled, which the internal `dead_canary` cannot detect:
+
+1. Create a free account and a new check named "CryptoTrader cron 4h", expected period 4h, grace 2h.
+2. Copy the UUID at the end of its ping URL (`https://hc-ping.com/<UUID>`).
+3. Add it as repo secret `HEALTHCHECKS_UUID`.
+
+Without the secret the workflow runs identically; the ping step is just skipped.
 
 ## Active Alerts
 

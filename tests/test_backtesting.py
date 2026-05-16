@@ -5,9 +5,9 @@ import pytest
 from backtesting.engine import BacktestEngine, BacktestResult
 from backtesting.metrics import calculate_metrics
 from strategies.base import BaseStrategy, Signal
-from strategies.sma_crossover import SMACrossover
-from strategies.rsi_mean_reversion import RSIMeanReversion
-from strategies.bollinger_breakout import BollingerBreakout
+from research.strategies_explored.sma_crossover import SMACrossover
+from research.strategies_explored.rsi_mean_reversion import RSIMeanReversion
+from research.strategies_explored.bollinger_breakout import BollingerBreakout
 
 
 def _make_df(n: int = 500) -> pd.DataFrame:

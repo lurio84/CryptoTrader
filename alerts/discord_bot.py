@@ -1,6 +1,8 @@
 """Discord alert system for CryptoTrader."""
 
 import logging
+import sys
+import time
 from datetime import datetime, timezone, timedelta
 
 import requests
@@ -58,6 +60,15 @@ COOLDOWN_DEAD_CANARY   = 6
 # Tax headroom: local-only alert (run manually before DCA-out sales)
 COOLDOWN_TAX_HEADROOM  = 168  # 7 days
 
+# External source outage: alert when an upstream API has been failing for
+# several consecutive cycles. Only `funding_rate` (OKX) and `sp500_change`
+# (FRED) currently have NO fallback -- prices already fall back to Kraken.
+# Threshold = 3 consecutive failures within `SOURCE_FAIL_WINDOW_HOURS`
+# (12h = 3 cycles at 4h cadence) before raising the outage alert.
+SOURCE_FAIL_THRESHOLD = 3
+SOURCE_FAIL_WINDOW_HOURS = 12
+COOLDOWN_SOURCE_OUTAGE = 24
+
 
 # ---------------------------------------------------------------------------
 # Message formatting
@@ -107,20 +118,62 @@ def _format_embed(alert_type: str, severity: str, details: dict) -> dict:
 # Sending
 # ---------------------------------------------------------------------------
 
-def send_discord_message(payload: dict) -> bool:
-    """Send a message via Discord webhook."""
+def require_webhook_configured() -> None:
+    """Exit hard if Discord webhook is not configured. Call before any --notify path.
+
+    A silent log + return False from send_discord_message would mean alerts get
+    recorded in DB as notified=0 and nobody is aware. Failing fast at the entrypoint
+    makes misconfiguration obvious instead of silent.
+    """
+    if not settings.discord.webhook_url:
+        print(
+            "ERROR: DISCORD_WEBHOOK_URL no esta configurado. "
+            "--notify requiere un webhook valido en .env o env vars.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+
+def send_discord_message(payload: dict, max_retries: int = 3) -> bool:
+    """Send a message via Discord webhook with exponential backoff retry.
+
+    Retries on transient errors (429 rate limit, 5xx, network) with delays
+    1s, 4s, 16s. Does not retry on permanent 4xx errors (bad payload, invalid
+    webhook URL) since they will not recover.
+    """
     webhook_url = settings.discord.webhook_url
     if not webhook_url:
         logger.warning("Discord webhook URL not configured. Set DISCORD_WEBHOOK_URL in .env")
         return False
-    try:
-        resp = requests.post(webhook_url, json=payload, timeout=10)
-        resp.raise_for_status()
-        logger.info("Discord message sent successfully")
-        return True
-    except Exception as e:
-        logger.error("Failed to send Discord message: %s", e)
-        return False
+
+    last_err: str | None = None
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(webhook_url, json=payload, timeout=10)
+            if resp.status_code < 400:
+                logger.info("Discord message sent successfully (attempt %d)", attempt + 1)
+                return True
+            if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                logger.error(
+                    "Discord rejected message with %d (no retry): %s",
+                    resp.status_code, resp.text[:200],
+                )
+                return False
+            last_err = "HTTP %d" % resp.status_code
+            logger.warning(
+                "Discord transient error %d (attempt %d/%d)",
+                resp.status_code, attempt + 1, max_retries,
+            )
+        except Exception as e:
+            last_err = str(e)
+            logger.warning(
+                "Discord request failed (attempt %d/%d): %s",
+                attempt + 1, max_retries, e,
+            )
+        if attempt < max_retries - 1:
+            time.sleep(4 ** attempt)  # 1s, 4s, 16s
+    logger.error("Failed to send Discord message after %d attempts: %s", max_retries, last_err)
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +202,55 @@ def _log_alert(session, alert_type, severity, btc_price, eth_price, metric_value
         notified=1 if notified else 0,
     )
     session.add(entry)
+
+
+def _track_source_health(
+    session,
+    source: str,
+    failed: bool,
+    btc_price: float | None,
+    eth_price: float | None,
+    triggered: list,
+) -> None:
+    """Log per-cycle health of an external data source.
+
+    A `source_fail_<source>` row is recorded for every failed cycle (no Discord
+    notify). When >= SOURCE_FAIL_THRESHOLD failures pile up within the recent
+    window, raise a `source_outage_<source>` alert to Discord (cooldown 24h).
+    Successful cycles do not log -- old failure rows roll out of the window
+    naturally and the threshold drops.
+    """
+    if not failed:
+        return
+    _log_alert(session, "source_fail_{}".format(source), "yellow", btc_price, eth_price, 0.0, False)
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=SOURCE_FAIL_WINDOW_HOURS)).replace(tzinfo=None)
+    fail_count = session.query(AlertLog).filter(
+        AlertLog.alert_type == "source_fail_{}".format(source),
+        AlertLog.timestamp >= cutoff,
+    ).count()
+    if fail_count < SOURCE_FAIL_THRESHOLD:
+        return
+
+    outage_type = "source_outage_{}".format(source)
+    if _already_alerted(session, outage_type, hours=COOLDOWN_SOURCE_OUTAGE):
+        return
+
+    sent = send_discord_message(_format_embed(
+        "Source outage -- {}".format(source),
+        "yellow",
+        {
+            "recommendation": (
+                "La fuente '{}' ha fallado {} ciclos consecutivos (>{}h). "
+                "Mientras este caida, la senal asociada no puede dispararse. "
+                "Revisar conectividad o cambiar de proveedor.".format(
+                    source, fail_count, SOURCE_FAIL_WINDOW_HOURS,
+                )
+            ),
+        },
+    ))
+    _log_alert(session, outage_type, "yellow", btc_price, eth_price, float(fail_count), sent)
+    triggered.append({"type": outage_type, "severity": "yellow", "sent": sent})
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +329,11 @@ def check_and_alert(prices: dict | None = None) -> list[dict]:
     triggered = []
 
     with get_session() as session:
+        # Track health of upstream sources that have no fallback.
+        # Only emits Discord alert after SOURCE_FAIL_THRESHOLD consecutive failures.
+        _track_source_health(session, "funding", funding_rate is None, btc_price, eth_price, triggered)
+        _track_source_health(session, "sp500", sp500_change is None, btc_price, eth_price, triggered)
+
         # Dead canary: detect if previous checks stopped running silently
         last_hb = session.query(func.max(AlertLog.timestamp)).filter(
             AlertLog.alert_type == "heartbeat"
