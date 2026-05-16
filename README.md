@@ -39,6 +39,8 @@ See `RESEARCH_ACTIVE.md` for full results per signal.
 
 **Signals tested and discarded:** Fear & Greed Index, SMA/RSI/Bollinger, ETH/BTC MVRV as buy/sell signal (Research 7, 13), MA ratio as sell signal, RSI weekly overbought, NVT ratio, halving timing, DXY/BTC correlation, stablecoin dominance, term structure basis. Common pattern: momentum/valuation extremes in crypto predict *continuation*, not reversal. See `RESEARCH_ARCHIVE.md`.
 
+> SMA / RSI / Bollinger code lives under `research/strategies_explored/` so the `backtest` CLI command stays reproducible without implying they are production signals.
+
 ## Simulated Plan Performance (2020-2026)
 
 Full plan simulation with validated signals:

@@ -3,9 +3,9 @@ import numpy as np
 import pytest
 
 from strategies.base import Signal
-from strategies.sma_crossover import SMACrossover
-from strategies.rsi_mean_reversion import RSIMeanReversion
-from strategies.bollinger_breakout import BollingerBreakout
+from research.strategies_explored.sma_crossover import SMACrossover
+from research.strategies_explored.rsi_mean_reversion import RSIMeanReversion
+from research.strategies_explored.bollinger_breakout import BollingerBreakout
 
 
 def _make_trending_up_df(n: int = 200) -> pd.DataFrame:
