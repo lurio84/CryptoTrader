@@ -63,6 +63,20 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python main.py check --notify
+      # External heartbeat: pings Healthchecks.io so an outage of GitHub
+      # Actions itself (or the repo being disabled / scheduler paused) is
+      # detected. Healthchecks.io emails me if no ping arrives within
+      # the grace period configured there. Skipped silently if the secret
+      # is not configured -- ie. the workflow works without an account.
+      - name: Heartbeat to Healthchecks.io
+        if: always()
+        env:
+          HEALTHCHECKS_UUID: ${{ secrets.HEALTHCHECKS_UUID }}
+        run: |
+          if [ -n "$HEALTHCHECKS_UUID" ]; then
+            curl -fsS --retry 3 --max-time 10 \
+              "https://hc-ping.com/$HEALTHCHECKS_UUID/${{ job.status }}" || true
+          fi
       # Backup: la cache puede ser evictada (>7d inactividad o cuota 10GB).
       # Si pasa, la DB se reconstruye vacía y los cooldowns se resetean.
       # Subimos snapshot diario para poder restaurar manualmente si hace falta.
