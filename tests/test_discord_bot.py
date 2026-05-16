@@ -438,3 +438,126 @@ def test_dead_canary_dedup(db_session):
     result = _run_normal_check(db_session)
 
     assert not any(a["type"] == "dead_canary" for a in result)
+
+
+# ---------------------------------------------------------------------------
+# send_discord_message -- retry + permanent error handling
+# ---------------------------------------------------------------------------
+
+def _resp(status: int, text: str = ""):
+    """Build a minimal fake requests.Response."""
+    from unittest.mock import MagicMock
+    r = MagicMock()
+    r.status_code = status
+    r.text = text
+    return r
+
+
+def test_send_succeeds_first_attempt():
+    from alerts.discord_bot import send_discord_message
+
+    with (
+        patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"),
+        patch("alerts.discord_bot.requests.post", return_value=_resp(204)) as mock_post,
+        patch("alerts.discord_bot.time.sleep") as mock_sleep,
+    ):
+        assert send_discord_message({"x": 1}) is True
+        assert mock_post.call_count == 1
+        mock_sleep.assert_not_called()
+
+
+def test_send_retries_on_5xx_then_succeeds():
+    """5xx is transient -> retry. Second attempt returns 204 -> success."""
+    from alerts.discord_bot import send_discord_message
+
+    with (
+        patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"),
+        patch(
+            "alerts.discord_bot.requests.post",
+            side_effect=[_resp(503), _resp(204)],
+        ) as mock_post,
+        patch("alerts.discord_bot.time.sleep") as mock_sleep,
+    ):
+        assert send_discord_message({"x": 1}) is True
+        assert mock_post.call_count == 2
+        mock_sleep.assert_called_once_with(1)
+
+
+def test_send_retries_on_429_rate_limit():
+    from alerts.discord_bot import send_discord_message
+
+    with (
+        patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"),
+        patch(
+            "alerts.discord_bot.requests.post",
+            side_effect=[_resp(429), _resp(429), _resp(204)],
+        ) as mock_post,
+        patch("alerts.discord_bot.time.sleep"),
+    ):
+        assert send_discord_message({"x": 1}) is True
+        assert mock_post.call_count == 3
+
+
+def test_send_does_not_retry_on_4xx_permanent():
+    """400/404 are permanent errors -> no retry, return False."""
+    from alerts.discord_bot import send_discord_message
+
+    with (
+        patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"),
+        patch(
+            "alerts.discord_bot.requests.post",
+            return_value=_resp(404, "Webhook not found"),
+        ) as mock_post,
+        patch("alerts.discord_bot.time.sleep") as mock_sleep,
+    ):
+        assert send_discord_message({"x": 1}) is False
+        assert mock_post.call_count == 1
+        mock_sleep.assert_not_called()
+
+
+def test_send_gives_up_after_max_retries():
+    """All attempts fail -> return False after max_retries attempts."""
+    from alerts.discord_bot import send_discord_message
+
+    with (
+        patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"),
+        patch("alerts.discord_bot.requests.post", return_value=_resp(503)) as mock_post,
+        patch("alerts.discord_bot.time.sleep"),
+    ):
+        assert send_discord_message({"x": 1}) is False
+        assert mock_post.call_count == 3
+
+
+def test_send_returns_false_when_webhook_empty():
+    """Empty webhook_url -> log warning + return False, NO request."""
+    from alerts.discord_bot import send_discord_message
+
+    with (
+        patch("alerts.discord_bot.settings.discord.webhook_url", ""),
+        patch("alerts.discord_bot.requests.post") as mock_post,
+    ):
+        assert send_discord_message({"x": 1}) is False
+        mock_post.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# require_webhook_configured -- fail-fast for --notify paths
+# ---------------------------------------------------------------------------
+
+def test_require_webhook_exits_when_empty():
+    """Empty webhook_url -> sys.exit(2)."""
+    import pytest
+    from alerts.discord_bot import require_webhook_configured
+
+    with patch("alerts.discord_bot.settings.discord.webhook_url", ""):
+        with pytest.raises(SystemExit) as exc:
+            require_webhook_configured()
+        assert exc.value.code == 2
+
+
+def test_require_webhook_passes_when_configured():
+    """Non-empty webhook_url -> returns silently."""
+    from alerts.discord_bot import require_webhook_configured
+
+    with patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"):
+        require_webhook_configured()

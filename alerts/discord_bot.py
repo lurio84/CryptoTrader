@@ -1,6 +1,8 @@
 """Discord alert system for CryptoTrader."""
 
 import logging
+import sys
+import time
 from datetime import datetime, timezone, timedelta
 
 import requests
@@ -107,20 +109,62 @@ def _format_embed(alert_type: str, severity: str, details: dict) -> dict:
 # Sending
 # ---------------------------------------------------------------------------
 
-def send_discord_message(payload: dict) -> bool:
-    """Send a message via Discord webhook."""
+def require_webhook_configured() -> None:
+    """Exit hard if Discord webhook is not configured. Call before any --notify path.
+
+    A silent log + return False from send_discord_message would mean alerts get
+    recorded in DB as notified=0 and nobody is aware. Failing fast at the entrypoint
+    makes misconfiguration obvious instead of silent.
+    """
+    if not settings.discord.webhook_url:
+        print(
+            "ERROR: DISCORD_WEBHOOK_URL no esta configurado. "
+            "--notify requiere un webhook valido en .env o env vars.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+
+def send_discord_message(payload: dict, max_retries: int = 3) -> bool:
+    """Send a message via Discord webhook with exponential backoff retry.
+
+    Retries on transient errors (429 rate limit, 5xx, network) with delays
+    1s, 4s, 16s. Does not retry on permanent 4xx errors (bad payload, invalid
+    webhook URL) since they will not recover.
+    """
     webhook_url = settings.discord.webhook_url
     if not webhook_url:
         logger.warning("Discord webhook URL not configured. Set DISCORD_WEBHOOK_URL in .env")
         return False
-    try:
-        resp = requests.post(webhook_url, json=payload, timeout=10)
-        resp.raise_for_status()
-        logger.info("Discord message sent successfully")
-        return True
-    except Exception as e:
-        logger.error("Failed to send Discord message: %s", e)
-        return False
+
+    last_err: str | None = None
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(webhook_url, json=payload, timeout=10)
+            if resp.status_code < 400:
+                logger.info("Discord message sent successfully (attempt %d)", attempt + 1)
+                return True
+            if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                logger.error(
+                    "Discord rejected message with %d (no retry): %s",
+                    resp.status_code, resp.text[:200],
+                )
+                return False
+            last_err = "HTTP %d" % resp.status_code
+            logger.warning(
+                "Discord transient error %d (attempt %d/%d)",
+                resp.status_code, attempt + 1, max_retries,
+            )
+        except Exception as e:
+            last_err = str(e)
+            logger.warning(
+                "Discord request failed (attempt %d/%d): %s",
+                attempt + 1, max_retries, e,
+            )
+        if attempt < max_retries - 1:
+            time.sleep(4 ** attempt)  # 1s, 4s, 16s
+    logger.error("Failed to send Discord message after %d attempts: %s", max_retries, last_err)
+    return False
 
 
 # ---------------------------------------------------------------------------
