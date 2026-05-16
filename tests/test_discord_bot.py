@@ -199,6 +199,105 @@ def test_eth_dca_out_level_triggered(db_session):
 
 
 # ---------------------------------------------------------------------------
+# check_and_alert -- DCA-out hybrid cap
+# ---------------------------------------------------------------------------
+
+def _seed_dca_out_alerts(db_session, asset: str, n: int) -> None:
+    """Seed N historical notified DCA-out alerts for `asset`."""
+    base_ts = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=365)
+    for i in range(n):
+        db_session.add(AlertLog(
+            timestamp=base_ts + timedelta(days=i * 30),
+            alert_type="{}_dca_out_80k".format(asset),
+            severity="orange",
+            message="{}_dca_out_80k".format(asset),
+            btc_price=100_000.0, eth_price=2_500.0,
+            metric_value=80_000.0, notified=1,
+        ))
+    db_session.commit()
+
+
+def _run_check_for_dca_out(db_session, btc_price=111_000.0, eth_price=2_000.0):
+    prices = {
+        **_normal_prices(),
+        "btc_price": btc_price,
+        "btc_price_eur": btc_price * 0.9,
+        "eth_price": eth_price,
+        "eth_price_eur": eth_price * 0.9,
+    }
+    with (
+        patch("alerts.discord_bot.fetch_prices", return_value=prices),
+        patch("alerts.discord_bot.fetch_funding_rate", return_value=0.0),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=0.0),
+        patch("alerts.discord_bot.send_discord_message", return_value=True),
+        patch("alerts.discord_bot.init_db"),
+        patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
+    ):
+        from alerts.discord_bot import check_and_alert
+        return check_and_alert()
+
+
+def test_dca_out_hybrid_cap_blocks_level_alerts(db_session):
+    """10 alertas BTC DCA-out previas (=30% teorico) bloquean nuevas alertas de nivel."""
+    _seed_dca_out_alerts(db_session, "btc", 10)
+    result = _run_check_for_dca_out(db_session, btc_price=111_000.0)
+    types = [a["type"] for a in result]
+    assert "btc_dca_out_80k" not in types
+    assert "btc_dca_out_100k" not in types
+
+
+def test_dca_out_hybrid_cap_emits_cap_warning(db_session):
+    """Cuando se bloquea por cap, se emite un aviso btc_dca_out_cap (una vez)."""
+    _seed_dca_out_alerts(db_session, "btc", 10)
+    result = _run_check_for_dca_out(db_session, btc_price=111_000.0)
+    types = [a["type"] for a in result]
+    assert "btc_dca_out_cap" in types
+
+    # Second run within cooldown: cap warning is not re-emitted.
+    result2 = _run_check_for_dca_out(db_session, btc_price=111_000.0)
+    assert not any(a["type"] == "btc_dca_out_cap" for a in result2)
+
+
+def test_dca_out_hybrid_cap_below_threshold_still_alerts(db_session):
+    """9 alertas previas (<30%) NO bloquean: nuevas alertas de nivel siguen disparando."""
+    _seed_dca_out_alerts(db_session, "btc", 9)
+    result = _run_check_for_dca_out(db_session, btc_price=111_000.0)
+    types = [a["type"] for a in result]
+    assert "btc_dca_out_80k" in types
+    assert "btc_dca_out_100k" in types
+    assert "btc_dca_out_cap" not in types
+
+
+def test_dca_out_hybrid_cap_per_asset(db_session):
+    """Cap de BTC no afecta a ETH (contado por activo)."""
+    _seed_dca_out_alerts(db_session, "btc", 10)
+    result = _run_check_for_dca_out(db_session, btc_price=111_000.0, eth_price=3_500.0)
+    types = [a["type"] for a in result]
+    assert "btc_dca_out_cap" in types
+    assert "eth_dca_out_3k" in types  # ETH not capped
+
+
+def test_dca_out_hybrid_cap_ignores_unnotified_alerts(db_session):
+    """Alertas con notified=0 (Discord fallo) NO cuentan para el cap."""
+    base_ts = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=365)
+    for i in range(10):
+        db_session.add(AlertLog(
+            timestamp=base_ts + timedelta(days=i * 30),
+            alert_type="btc_dca_out_80k",
+            severity="orange",
+            message="btc_dca_out_80k",
+            btc_price=100_000.0, eth_price=2_500.0,
+            metric_value=80_000.0, notified=0,  # NOT notified
+        ))
+    db_session.commit()
+
+    result = _run_check_for_dca_out(db_session, btc_price=111_000.0)
+    types = [a["type"] for a in result]
+    assert "btc_dca_out_80k" in types
+    assert "btc_dca_out_cap" not in types
+
+
+# ---------------------------------------------------------------------------
 # check_and_alert -- deduplication
 # ---------------------------------------------------------------------------
 

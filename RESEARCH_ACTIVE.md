@@ -15,6 +15,7 @@ Para research descartado e historico completo ver `RESEARCH_ARCHIVE.md`.
 | BTC multi-day crash -20% 7d (Research 11) | ORANGE-ESPERA | N_OOS=4 insuficiente; re-evaluar 2027-2028 |
 | BTC funding rate negativo (Research 12) | ACTIVO | Alerta -0.01% validada, N=127, p<0.001, OOS +2.5% |
 | DCA-out ETH sistematico (Research 14) | ACTIVO | Venta 3% cada $1k sobre $3k. Delta after-tax +1,324 EUR vs hold (+45%) |
+| DCA-out modalidad hibrida (Research 15) | ACTIVO | Cap 30% lifetime (10 alertas por activo) sobre el rolling 30d |
 
 Metodologia obligatoria por research: split 70/30 IS/OOS + Mann-Whitney U p<0.05 IS + bootstrap 95% CI (N=10.000) + positivo OOS.
 
@@ -200,6 +201,38 @@ Setup: simulacion 2018-01 a 2026-04, Sparplan ETH 2 EUR/semana (matches producti
 - **Tickers ETF UCITS**: SPY/SOXX/O/URA son proxies USD. TR usa ETFs europeos (ej. SXR8.DE)
 - **Verificar ETH stakeado TR**: confirmar si venta es inmediata o requiere unstaking
 - **Dedup funding_negative ciego a intensidad**: el cooldown de 24h no re-alerta aunque el funding empeore drasticamente (ej. -0.01% -> -0.05% al dia siguiente). Revisar si tiene sentido un threshold de re-alerta por intensidad. Requiere backtest antes de tocar produccion.
+
+---
+
+## Research 15: DCA-out modalidad hibrida (2026-05-17)
+
+Script: `research/dca_out_modalities_research.py`
+
+Motivacion: el audit MEDIO 9 no aclaro si el rolling 30d implicito en `_check_dca_out` era la intencion. El backtest compara 3 modalidades sobre BTC 2018-2026 (weekly Sparplan 8 EUR, fees TR 1 EUR, Spain IRPF FIFO):
+
+| Modalidad | End value after-tax | CAGR | Max DD | n_ventas | % BTC vendido |
+|-----------|--------------------:|-----:|-------:|---------:|--------------:|
+| HOLD (sin DCA-out) | 12,876 EUR | 17.3% | -74.8% | 0 | 0.0% |
+| Rolling 30d (pre-cambio) | 16,274 EUR | 20.7% | -74.8% | 26 | **53.9%** |
+| Unico por nivel | 13,388 EUR | 17.9% | -74.8% | 3 | 8.5% |
+| Hibrido cap 30% | **14,447 EUR** | 19.0% | -74.8% | 12 | 30.0% |
+
+Decision: **adoptar hibrida con cap del 30%**. Rolling captura +26% vs hold pero convierte >50% del BTC en cash; en escenarios "super-cycle" sin retracements el regret seria material. Hibrida acota la conversion en 30% lifetime preservando 70% del BTC para el upside futuro.
+
+**Implementacion produccion** (`alerts/discord_bot.py`):
+
+- Constante `DCA_OUT_HYBRID_CAP_FRAC = 0.30`.
+- `_check_dca_out` cuenta lifetime `notified=1` para `{asset}_dca_out_%` (excluyendo el propio `{asset}_dca_out_cap`). Si `n_alertas * pct/100 >= cap_frac`, no emite alertas de nivel y emite un aviso `{asset}_dca_out_cap` con cooldown 30d.
+- Cap por activo: BTC y ETH llevan contadores separados.
+- Con `BTC_DCA_OUT_PCT = ETH_DCA_OUT_PCT = 3`, el cap se alcanza tras 10 alertas notificadas por activo.
+
+**Limitaciones conocidas**:
+
+- El cap es lifetime puro. Si Lucas decide rebalancear y volver a acumular BTC tras alcanzar el cap, hay que limpiar manualmente las entradas `btc_dca_out_*` (notified=1) en `alert_log` para resetear el contador.
+- Alertas con `notified=0` (fallos Discord) NO cuentan -> el cap se mantiene predecible si una alerta no llegó a Lucas.
+- Es contador de ALERTAS, no de ventas reales. Asume que cuando recibes la alerta vendes. Si te saltas alguna, el cap se activa antes de tiempo -> sesgo conservador alineado con "evitar regret extremo".
+
+**ACTIVO:** alertas `btc_dca_out_Xk` y `eth_dca_out_Xk` (orange, dedup 30d) + cap `{asset}_dca_out_cap` (yellow, dedup 30d).
 
 ---
 
