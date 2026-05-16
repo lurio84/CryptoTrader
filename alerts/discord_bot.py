@@ -60,6 +60,15 @@ COOLDOWN_DEAD_CANARY   = 6
 # Tax headroom: local-only alert (run manually before DCA-out sales)
 COOLDOWN_TAX_HEADROOM  = 168  # 7 days
 
+# External source outage: alert when an upstream API has been failing for
+# several consecutive cycles. Only `funding_rate` (OKX) and `sp500_change`
+# (FRED) currently have NO fallback -- prices already fall back to Kraken.
+# Threshold = 3 consecutive failures within `SOURCE_FAIL_WINDOW_HOURS`
+# (12h = 3 cycles at 4h cadence) before raising the outage alert.
+SOURCE_FAIL_THRESHOLD = 3
+SOURCE_FAIL_WINDOW_HOURS = 12
+COOLDOWN_SOURCE_OUTAGE = 24
+
 
 # ---------------------------------------------------------------------------
 # Message formatting
@@ -195,6 +204,55 @@ def _log_alert(session, alert_type, severity, btc_price, eth_price, metric_value
     session.add(entry)
 
 
+def _track_source_health(
+    session,
+    source: str,
+    failed: bool,
+    btc_price: float | None,
+    eth_price: float | None,
+    triggered: list,
+) -> None:
+    """Log per-cycle health of an external data source.
+
+    A `source_fail_<source>` row is recorded for every failed cycle (no Discord
+    notify). When >= SOURCE_FAIL_THRESHOLD failures pile up within the recent
+    window, raise a `source_outage_<source>` alert to Discord (cooldown 24h).
+    Successful cycles do not log -- old failure rows roll out of the window
+    naturally and the threshold drops.
+    """
+    if not failed:
+        return
+    _log_alert(session, "source_fail_{}".format(source), "yellow", btc_price, eth_price, 0.0, False)
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=SOURCE_FAIL_WINDOW_HOURS)).replace(tzinfo=None)
+    fail_count = session.query(AlertLog).filter(
+        AlertLog.alert_type == "source_fail_{}".format(source),
+        AlertLog.timestamp >= cutoff,
+    ).count()
+    if fail_count < SOURCE_FAIL_THRESHOLD:
+        return
+
+    outage_type = "source_outage_{}".format(source)
+    if _already_alerted(session, outage_type, hours=COOLDOWN_SOURCE_OUTAGE):
+        return
+
+    sent = send_discord_message(_format_embed(
+        "Source outage -- {}".format(source),
+        "yellow",
+        {
+            "recommendation": (
+                "La fuente '{}' ha fallado {} ciclos consecutivos (>{}h). "
+                "Mientras este caida, la senal asociada no puede dispararse. "
+                "Revisar conectividad o cambiar de proveedor.".format(
+                    source, fail_count, SOURCE_FAIL_WINDOW_HOURS,
+                )
+            ),
+        },
+    ))
+    _log_alert(session, outage_type, "yellow", btc_price, eth_price, float(fail_count), sent)
+    triggered.append({"type": outage_type, "severity": "yellow", "sent": sent})
+
+
 # ---------------------------------------------------------------------------
 # DCA-out helper (BTC and ETH share the same loop structure)
 # ---------------------------------------------------------------------------
@@ -271,6 +329,11 @@ def check_and_alert(prices: dict | None = None) -> list[dict]:
     triggered = []
 
     with get_session() as session:
+        # Track health of upstream sources that have no fallback.
+        # Only emits Discord alert after SOURCE_FAIL_THRESHOLD consecutive failures.
+        _track_source_health(session, "funding", funding_rate is None, btc_price, eth_price, triggered)
+        _track_source_health(session, "sp500", sp500_change is None, btc_price, eth_price, triggered)
+
         # Dead canary: detect if previous checks stopped running silently
         last_hb = session.query(func.max(AlertLog.timestamp)).filter(
             AlertLog.alert_type == "heartbeat"

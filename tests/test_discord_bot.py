@@ -561,3 +561,87 @@ def test_require_webhook_passes_when_configured():
 
     with patch("alerts.discord_bot.settings.discord.webhook_url", "https://discord.com/webhook/abc"):
         require_webhook_configured()
+
+
+# ---------------------------------------------------------------------------
+# _track_source_health -- consecutive-failure alerting
+# ---------------------------------------------------------------------------
+
+def _run_check_with_sources(db_session, funding=0.0, sp500=0.0):
+    """Run check_and_alert with controllable funding/sp500 (None == failure)."""
+    with (
+        patch("alerts.discord_bot.fetch_prices", return_value=_normal_prices()),
+        patch("alerts.discord_bot.fetch_funding_rate", return_value=funding),
+        patch("alerts.discord_bot.fetch_sp500_change", return_value=sp500),
+        patch("alerts.discord_bot.send_discord_message", return_value=True),
+        patch("alerts.discord_bot.init_db"),
+        patch("alerts.discord_bot.get_session", _make_session_ctx(db_session)),
+    ):
+        from alerts.discord_bot import check_and_alert
+        return check_and_alert()
+
+
+def test_source_fail_logged_but_no_alert_below_threshold(db_session):
+    """1 failed cycle -> source_fail row, but no source_outage Discord alert."""
+    result = _run_check_with_sources(db_session, funding=None, sp500=0.0)
+
+    assert not any(a["type"].startswith("source_outage_") for a in result)
+    fail_rows = db_session.query(AlertLog).filter_by(alert_type="source_fail_funding").count()
+    assert fail_rows == 1
+
+
+def test_source_outage_triggers_after_three_consecutive_failures(db_session):
+    """3 fail rows within 12h -> source_outage_funding alert."""
+    # Seed 2 prior failures within the 12h window
+    for hours_ago in (8, 4):
+        db_session.add(AlertLog(
+            timestamp=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours_ago),
+            alert_type="source_fail_funding",
+            severity="yellow",
+            message="source_fail_funding",
+            btc_price=None, eth_price=None,
+            metric_value=0.0, notified=0,
+        ))
+    db_session.commit()
+
+    result = _run_check_with_sources(db_session, funding=None, sp500=0.0)
+
+    assert any(a["type"] == "source_outage_funding" for a in result)
+
+
+def test_source_outage_respects_cooldown(db_session):
+    """Outage already alerted within 24h cooldown -> no duplicate."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for hours_ago in (8, 4):
+        db_session.add(AlertLog(
+            timestamp=now - timedelta(hours=hours_ago),
+            alert_type="source_fail_funding",
+            severity="yellow",
+            message="source_fail_funding",
+            btc_price=None, eth_price=None,
+            metric_value=0.0, notified=0,
+        ))
+    db_session.add(AlertLog(
+        timestamp=now - timedelta(hours=2),
+        alert_type="source_outage_funding",
+        severity="yellow",
+        message="source_outage_funding",
+        btc_price=None, eth_price=None,
+        metric_value=3.0, notified=1,
+    ))
+    db_session.commit()
+
+    result = _run_check_with_sources(db_session, funding=None, sp500=0.0)
+
+    assert not any(a["type"] == "source_outage_funding" for a in result)
+
+
+def test_source_recovery_does_not_log(db_session):
+    """Healthy fetch -> no source_fail row appended."""
+    result = _run_check_with_sources(db_session, funding=0.0, sp500=0.0)
+
+    assert not any(a["type"].startswith("source_") for a in result)
+    fail_rows = db_session.query(AlertLog).filter(
+        AlertLog.alert_type.like("source_fail_%"),
+    ).count()
+    assert fail_rows == 0
