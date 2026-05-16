@@ -8,51 +8,102 @@ on:
     - cron: '0 9 * * 0'
     # Monthly DB cleanup: 1st of each month at 03:00 UTC
     - cron: '0 3 1 * *'
-  workflow_dispatch: # Manual trigger from GitHub UI
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  check-signals:
+  # CI: tests + lint. Runs on push, PR and manual dispatch only.
+  # MUST NOT run on cron — a broken test or lint change must never silence operational alerts.
+  quality:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: 'pip'
+      - name: Install dependencies
+        run: pip install -e ".[dev,dashboard]"
+      - name: Run tests
+        run: pytest tests/ -q
+      - name: Lint
+        run: ruff check alerts cli config data strategies backtesting dashboard analysis main.py
 
+  # Operational alerts. Independent from `quality` so broken tests never block alerts.
+  check-signals:
+    if: (github.event_name == 'schedule' && github.event.schedule == '0 */4 * * *') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
       - name: Restore alert DB cache
         uses: actions/cache@v5
         with:
           path: data/cryptotrader.db
           key: cryptotrader-db-${{ github.run_id }}
           restore-keys: cryptotrader-db-
-
       - name: Install dependencies
         run: pip install -e ".[dev,dashboard]"
-
-      - name: Run tests
-        run: pytest tests/ -q
-
-      - name: Lint
-        run: ruff check alerts cli config data strategies backtesting dashboard analysis main.py
-
       - name: Run signal check and notify
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python main.py check --notify
 
-      - name: Send weekly digest (Sundays only)
-        if: github.event.schedule == '0 9 * * 0' || github.event_name == 'workflow_dispatch'
+  weekly-digest:
+    if: github.event.schedule == '0 9 * * 0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Restore alert DB cache
+        uses: actions/cache@v5
+        with:
+          path: data/cryptotrader.db
+          key: cryptotrader-db-${{ github.run_id }}
+          restore-keys: cryptotrader-db-
+      - name: Install dependencies
+        run: pip install -e ".[dev,dashboard]"
+      - name: Send weekly digest
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python main.py digest --notify
 
-      - name: Monthly DB cleanup (1st of each month)
-        if: github.event.schedule == '0 3 1 * *'
+  db-cleanup:
+    if: github.event.schedule == '0 3 1 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Restore alert DB cache
+        uses: actions/cache@v5
+        with:
+          path: data/cryptotrader.db
+          key: cryptotrader-db-${{ github.run_id }}
+          restore-keys: cryptotrader-db-
+      - name: Install dependencies
+        run: pip install -e ".[dev,dashboard]"
+      - name: Cleanup old AlertLog rows
         run: python main.py db-cleanup --keep-days 90
