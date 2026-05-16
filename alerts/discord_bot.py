@@ -53,6 +53,17 @@ COOLDOWN_FUNDING    = 24
 COOLDOWN_SP500      = 168   # 7 days
 COOLDOWN_DCA_OUT    = 720   # 30 days
 
+# Hybrid DCA-out cap: stop emitting DCA-out alerts for an asset once the
+# cumulative theoretical sells reach this fraction of total holdings.
+# Each alerta DCA-out representa una venta del *_DCA_OUT_PCT% del BTC/ETH
+# en wallet en ese momento. Tras N alertas notificadas se asume que el total
+# vendido teorico (suma simple N * pct) supera el cap, y se deja de emitir.
+# Decision tomada 2026-05-17 tras Research 15 (modalidades DCA-out): la
+# modalidad rolling histórica vendia ~54% del BTC en 2018-2026; cap del 30%
+# preserva exposicion al upside futuro sin renunciar al edge de toma de
+# beneficios en niveles altos. Ver RESEARCH_ACTIVE.md.
+DCA_OUT_HYBRID_CAP_FRAC = 0.30
+
 # Dead canary: alert if no successful check in this many hours
 CANARY_THRESHOLD_HOURS = 10
 COOLDOWN_DEAD_CANARY   = 6
@@ -267,13 +278,58 @@ def _check_dca_out(
     dca_base: int,
     dca_step: int,
     dca_max: int,
+    dca_pct: float,
     extra_details: dict,
     recommendation_fn,
     triggered: list,
 ) -> None:
-    """Check DCA-out levels for a given asset and append triggered alerts."""
+    """Check DCA-out levels for a given asset and append triggered alerts.
+
+    Applies the hybrid cap: counts lifetime notified DCA-out alerts for this
+    asset; if the implied cumulative sold fraction (n_alerts * dca_pct/100)
+    has reached `DCA_OUT_HYBRID_CAP_FRAC`, skips emitting further DCA-out
+    alerts for the asset and emits a one-off `<asset>_dca_out_cap` notice
+    (cooldown = COOLDOWN_DCA_OUT) so the situation is visible.
+    """
     if price is None:
         return
+
+    # Hybrid cap check: lifetime DCA-out alerts for this asset.
+    lifetime_alerts = (
+        session.query(AlertLog)
+        .filter(
+            AlertLog.alert_type.like("{}_dca_out_%".format(asset)),
+            AlertLog.alert_type != "{}_dca_out_cap".format(asset),
+            AlertLog.notified == 1,
+        )
+        .count()
+    )
+    if lifetime_alerts * (dca_pct / 100.0) >= DCA_OUT_HYBRID_CAP_FRAC:
+        cap_alert = "{}_dca_out_cap".format(asset)
+        if not _already_alerted(session, cap_alert, hours=COOLDOWN_DCA_OUT):
+            pct_sold_est = lifetime_alerts * dca_pct
+            sent = send_discord_message(_format_embed(
+                "{} DCA-out cap alcanzado".format(asset.upper()),
+                "yellow",
+                {
+                    "btc_price": btc_price,
+                    "btc_price_eur": prices.get("btc_price_eur"),
+                    "eth_price": eth_price,
+                    "eth_price_eur": prices.get("eth_price_eur"),
+                    "recommendation": (
+                        "Has recibido {} alertas DCA-out {} historicas (~{}% acumulado teorico). "
+                        "Cap hibrido del {:.0f}% alcanzado: no se emiten mas hasta intervencion "
+                        "manual. Ver RESEARCH_ACTIVE Research 15.".format(
+                            lifetime_alerts, asset.upper(), int(pct_sold_est),
+                            DCA_OUT_HYBRID_CAP_FRAC * 100,
+                        )
+                    ),
+                },
+            ))
+            _log_alert(session, cap_alert, "yellow", btc_price, eth_price, float(lifetime_alerts), sent)
+            triggered.append({"type": cap_alert, "severity": "yellow", "sent": sent})
+        return
+
     level = dca_base
     level_num = 1
     while level <= dca_max:
@@ -401,6 +457,7 @@ def check_and_alert(prices: dict | None = None) -> list[dict]:
         _check_dca_out(
             session, "btc", btc_price, prices, btc_price, eth_price,
             BTC_DCA_OUT_BASE, BTC_DCA_OUT_STEP, BTC_DCA_OUT_MAX,
+            BTC_DCA_OUT_PCT,
             extra_details={"btc_change": btc_change},
             recommendation_fn=lambda n, lvl, eur: (
                 "DCA-out nivel {:d} (${:,.0f}): vende el {}% de tus BTC en Trade Republic. "
@@ -417,6 +474,7 @@ def check_and_alert(prices: dict | None = None) -> list[dict]:
         _check_dca_out(
             session, "eth", eth_price, prices, btc_price, eth_price,
             ETH_DCA_OUT_BASE, ETH_DCA_OUT_STEP, ETH_DCA_OUT_MAX,
+            ETH_DCA_OUT_PCT,
             extra_details={},
             recommendation_fn=lambda n, lvl, eur: (
                 "DCA-out nivel {:d} (${:,.0f}): vende el {}% de tu ETH en Trade Republic. "
