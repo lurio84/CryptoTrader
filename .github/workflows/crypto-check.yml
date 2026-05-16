@@ -72,10 +72,15 @@ jobs:
         if: always()
         env:
           HEALTHCHECKS_UUID: ${{ secrets.HEALTHCHECKS_UUID }}
+          # Map GitHub's "Success"/"Failure"/"Cancelled" to Healthchecks'
+          # expected lowercase suffixes (success / fail). Without this mapping
+          # hc-ping would treat the URL as an unknown suffix and silently
+          # never record failures -- defeating the whole purpose.
+          STATUS: ${{ job.status == 'success' && 'success' || 'fail' }}
         run: |
           if [ -n "$HEALTHCHECKS_UUID" ]; then
             curl -fsS --retry 3 --max-time 10 \
-              "https://hc-ping.com/$HEALTHCHECKS_UUID/${{ job.status }}" || true
+              "https://hc-ping.com/$HEALTHCHECKS_UUID/$STATUS" || true
           fi
       # Backup: la cache puede ser evictada (>7d inactividad o cuota 10GB).
       # Si pasa, la DB se reconstruye vacía y los cooldowns se resetean.
