@@ -306,9 +306,14 @@ def test_weekly_digest_sends_when_no_prior(db_session):
         patch("alerts.digest.fetch_mvrv", return_value=1.5),
         patch("alerts.digest.fetch_funding_rate", return_value=0.0001),
         patch("alerts.digest.fetch_sp500_change", return_value=1.0),
+        patch("alerts.digest.fetch_price_history", return_value=None),
+        patch("alerts.digest.fetch_sp500_history", return_value=None),
         patch("alerts.digest.send_discord_message", return_value=True),
         patch("alerts.digest.init_db"),
         patch("alerts.digest.get_session", _make_session_ctx(db_session)),
+        # _get_portfolio_summary re-imports get_session locally; patch source.
+        patch("data.database.get_session", _make_session_ctx(db_session)),
+        patch("data.etf_prices.fetch_all_etf_prices_eur", return_value={}),
     ):
         from alerts.digest import send_weekly_digest
         result = send_weekly_digest()
@@ -348,9 +353,13 @@ def test_weekly_digest_handles_none_prices(db_session):
         patch("alerts.digest.fetch_mvrv", return_value=None),
         patch("alerts.digest.fetch_funding_rate", return_value=None),
         patch("alerts.digest.fetch_sp500_change", return_value=None),
+        patch("alerts.digest.fetch_price_history", return_value=None),
+        patch("alerts.digest.fetch_sp500_history", return_value=None),
         patch("alerts.digest.send_discord_message", return_value=True),
         patch("alerts.digest.init_db"),
         patch("alerts.digest.get_session", _make_session_ctx(db_session)),
+        patch("data.database.get_session", _make_session_ctx(db_session)),
+        patch("data.etf_prices.fetch_all_etf_prices_eur", return_value={}),
     ):
         from alerts.digest import send_weekly_digest
         result = send_weekly_digest()
