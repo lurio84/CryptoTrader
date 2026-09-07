@@ -11,3 +11,8 @@ htmlcov/
 cryptotrader.egg-info/
 data/research_cache/
 .claude/settings.local.json
+
+# tooling Claude Code (no versionar)
+.claude/
+.agents/
+skills-lock.json
