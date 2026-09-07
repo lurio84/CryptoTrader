@@ -166,6 +166,17 @@ research/                 -- Scripts standalone de research (excluidos de contex
 - NO agregar manejo de errores para escenarios que no pueden ocurrir.
 - NO cambiar umbrales de produccion sin backtest IS/OOS completo y aprobacion explicita.
 
+## Checklist de bugs en scripts de research
+
+Errores recurrentes encontrados en auditorias de los scripts de `research/`. Revisar en cualquier script nuevo (plantilla: `research/exit_signals_research3.py`):
+
+- **Sharpe**: `sqrt(periods_per_year)` con el valor correcto (365 daily, 52 weekly, 8760 hourly). No hardcodear.
+- **Cooldown con datos temporales**: comparar `(ts_actual - last_ts).total_seconds() / 3600`, nunca `i - last_idx`.
+- **USD->EUR en impuestos**: si precios en USD y brackets en EUR, `gain_eur = gain_usd / EUR_USD_AVG`. No asumir 1:1.
+- **Compra+venta el mismo dia**: capturar `units_before_buy = units` antes de la compra, usar ese snapshot para la venta.
+- **Exit slippage**: `exit_price = last_price * (1 - slippage)` al valorar el portfolio final, igual que `engine.py` en el SELL.
+- **Fees en liquidacion final**: incluir la comision de venta en la liquidacion final del backtest.
+
 ## DB Schema (resumen)
 
 SQLite en `data/cryptotrader.db`. Tablas relevantes:
