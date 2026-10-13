@@ -158,3 +158,21 @@ jobs:
           name: cryptotrader-db-${{ github.run_id }}
           path: data/cryptotrader.db
           retention-days: 90
+
+  # GitHub disables scheduled workflows after 60 days without repository
+  # activity (it happened: disabled_inactivity from 2026-07-16 to 2026-10-13).
+  # A monthly empty commit to main keeps the schedule alive.
+  keepalive:
+    if: github.event.schedule == '0 3 1 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Push empty keepalive commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: keepalive for scheduled workflows"
+          git push origin HEAD:main
