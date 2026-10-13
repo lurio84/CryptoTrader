@@ -310,8 +310,12 @@ def cmd_db_cleanup(args: argparse.Namespace) -> None:
     init_db()
     cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).replace(tzinfo=None)
     with get_session() as session:
+        # DCA-out rows are never purged: the hybrid cap counts them lifetime.
         result = session.execute(
-            delete(AlertLog).where(AlertLog.timestamp < cutoff)
+            delete(AlertLog).where(
+                AlertLog.timestamp < cutoff,
+                AlertLog.alert_type.notlike("%dca_out%"),
+            )
         )
         deleted = result.rowcount
     print("db-cleanup: {} registros eliminados (anteriores a {})".format(deleted, cutoff.date()))

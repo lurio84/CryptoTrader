@@ -1,0 +1,26 @@
+# One-off (2026-10-13): seed the alert DB cache from the last snapshot taken
+# before the schedule was disabled. Remove this file after it has run once.
+name: Seed alert DB (one-off)
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Decode DB from secret
+        env:
+          DB_SEED: ${{ secrets.CT_DB_SEED_GZ_B64 }}
+        run: |
+          mkdir -p data
+          printf '%s' "$DB_SEED" | base64 -d | gunzip > data/cryptotrader.db
+          python3 -c "import sqlite3; c=sqlite3.connect('data/cryptotrader.db'); print('alert_log rows:', c.execute('select count(*) from alert_log').fetchone()[0]); print('dca_out notified:', c.execute(\"select count(*) from alert_log where alert_type like '%dca_out%' and notified=1\").fetchone()[0])"
+      - name: Save as alert DB cache
+        uses: actions/cache/save@v5
+        with:
+          path: data/cryptotrader.db
+          key: cryptotrader-db-seed-${{ github.run_id }}

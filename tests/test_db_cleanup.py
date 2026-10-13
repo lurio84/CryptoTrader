@@ -79,3 +79,20 @@ def test_db_cleanup_empty_db(db_session):
         cmd_db_cleanup(_make_args(keep_days=90))
 
     assert db_session.query(AlertLog).count() == 0
+
+
+def test_db_cleanup_keeps_old_dca_out_records(db_session):
+    """DCA-out rows survive cleanup: the hybrid cap counts them lifetime."""
+    _add_alert(db_session, "btc_dca_out_80k", days_ago=200)
+    _add_alert(db_session, "btc_dca_out_cap", days_ago=200)
+    _add_alert(db_session, "heartbeat", days_ago=200)
+
+    with (
+        patch("cli.commands_ops.init_db"),
+        patch("data.database.get_session", _make_session_ctx(db_session)),
+    ):
+        from cli.commands_ops import cmd_db_cleanup
+        cmd_db_cleanup(_make_args(keep_days=90))
+
+    remaining = sorted(a.alert_type for a in db_session.query(AlertLog).all())
+    assert remaining == ["btc_dca_out_80k", "btc_dca_out_cap"]
